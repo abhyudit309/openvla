@@ -192,5 +192,14 @@ OXE_NAMED_MIXTURES: Dict[str, List[Tuple[str, float]]] = {
     "droid_wipe": [
         ("droid_wipe", 1.0),
     ],
+
+    # === FRANKA Finetuning Datasets ===
+    "franka_finetune_mix_1": [
+        ("maniskill_dataset_converted_externally_to_rlds", 0.1),
+        ("cmu_franka_exploration_dataset_converted_externally_to_rlds", 5.0),
+        ("kaist_nonprehensile_converted_externally_to_rlds", 3.0),
+        ("stanford_robocook_converted_externally_to_rlds", 1.0),
+        ("cmu_play_fusion", 1.0)
+    ],
 }
 # fmt: on
