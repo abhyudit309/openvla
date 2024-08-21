@@ -497,6 +497,20 @@ class Prism_7B_DINOSigLIP_224px(Exp_7B_One_Stage):
     finetune_epochs: int = 2
 
 
+@dataclass
+class DINO_SigLIP_PHI3_LORA(LLaVa_v15_Reproduction_7B):
+    model_id: str = "dino-siglip-phi3-lora-model"
+    vision_backbone_id: str = "dinosiglip-vit-so-384px"
+    image_resize_strategy: str = "resize-naive"
+    llm_backbone_id: str = "phi-3-base"
+    arch_specifier: str = "fused-gelu-mlp"
+    llm_max_length = 4096
+    align_global_batch_size: int = 64
+    align_per_device_batch_size: int = 8
+    finetune_global_batch_size: int = 32
+    finetune_per_device_batch_size: int = 4
+
+
 # === Define a Model Registry Enum for Reference & Validation ===
 @unique
 class ModelRegistry(Enum):
@@ -573,6 +587,9 @@ class ModelRegistry(Enum):
     OPT_DINOSIGLIP_224PX_RESIZE_NAIVE = Opt_7B_DINOSigLIP_ViT_SO_p14_224px_Resize_Naive
     PRISM_DINOSIGLIP_224PX_CONTROLLED_7B = Prism_7B_DINOSigLIP_224px_Controlled
     PRISM_DINOSIGLIP_224PX_7B = Prism_7B_DINOSigLIP_224px
+
+    # Phi3 LLM Backbone
+    DINOSIGLIP_PHI3_LORA = DINO_SigLIP_PHI3_LORA
 
     @property
     def model_id(self) -> str:

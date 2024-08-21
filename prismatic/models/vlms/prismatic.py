@@ -168,6 +168,22 @@ class PrismaticVLM(VLM):
             overwatch.info(f"[TRAINABLE] 🔥 =>> LLM Backbone `{self.llm_backbone.identifier}`", ctx_level=1)
             overwatch.info(f"[TRAINABLE] 🔥 =>> Projector `{self.arch_specifier}`", ctx_level=1)
 
+        elif stage in {"lora-finetune", "lora-vla-train"}:
+            self.vision_backbone.requires_grad_(False)
+            self.projector.requires_grad_(True)
+
+            # Add to `self.trainable_module_keys`
+            self.trainable_module_keys = ["projector", "llm_backbone"]
+
+            # Update Trackers
+            self.vision_backbone_requires_grad = False
+
+            # Explicitly Log Frozen / Unfrozen Components
+            overwatch.info(f"[Frozen]    🥶 =>> Vision Backbone `{self.vision_backbone.identifier}`", ctx_level=1)
+            overwatch.info(f"[TRAINABLE] 🔥 =>> LLM Backbone `{self.llm_backbone.identifier}`", ctx_level=1)
+            overwatch.info(f"[TRAINABLE] 🔥 =>> Projector `{self.arch_specifier}`", ctx_level=1)
+            overwatch.info(f"LLM Trainable Params (Millions) = `{round(sum(p.numel() for p in self.llm_backbone.parameters() if p.requires_grad) / 1e6, 2)}`", ctx_level=1)
+
         elif stage in {"full-finetune", "vla-full-train"}:
             self.vision_backbone.dtype = torch.float32
             self.vision_backbone.requires_grad_(True)
