@@ -497,6 +497,7 @@ class Prism_7B_DINOSigLIP_224px(Exp_7B_One_Stage):
     finetune_epochs: int = 2
 
 
+# DinoSigLip + Phi3 + Lora
 @dataclass
 class DINO_SigLIP_PHI3_LORA(LLaVa_v15_Reproduction_7B):
     model_id: str = "dino-siglip-phi3-lora-model"
@@ -508,7 +509,7 @@ class DINO_SigLIP_PHI3_LORA(LLaVa_v15_Reproduction_7B):
     align_global_batch_size: int = 64
     align_per_device_batch_size: int = 8
     finetune_global_batch_size: int = 32
-    finetune_per_device_batch_size: int = 4
+    finetune_per_device_batch_size: int = 8
 
 
 # === Define a Model Registry Enum for Reference & Validation ===
@@ -588,7 +589,7 @@ class ModelRegistry(Enum):
     PRISM_DINOSIGLIP_224PX_CONTROLLED_7B = Prism_7B_DINOSigLIP_224px_Controlled
     PRISM_DINOSIGLIP_224PX_7B = Prism_7B_DINOSigLIP_224px
 
-    # Phi3 LLM Backbone
+    # === DinoSiglip + Phi3 LLM Backbone ===
     DINOSIGLIP_PHI3_LORA = DINO_SigLIP_PHI3_LORA
 
     @property

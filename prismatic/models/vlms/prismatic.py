@@ -258,7 +258,7 @@ class PrismaticVLM(VLM):
 
     def load_from_checkpoint(self, stage: str, run_dir: Path, pretrained_checkpoint: Optional[Path] = None) -> None:
         """Load weights from checkpoint (if required by the given stage)."""
-        assert stage in {"align", "finetune", "full-finetune"}, f"Stage {stage} is not supported!"
+        assert stage in {"align", "finetune", "lora-finetune", "full-finetune"}, f"Stage {stage} is not supported!"
 
         # If we're running a `no-align` architecture, we're good!
         if self.arch_specifier.startswith("no-align"):

@@ -40,6 +40,7 @@ from prismatic.util import set_global_seed
 
 # Disable Tokenizers Parallelism to Play Nice w/ PyTorch Multiprocessing DataLoaders
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
+os.environ['HF_TOKEN'] = "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"
 
 # Initialize Overwatch =>> Wraps `logging.Logger`
 overwatch = initialize_overwatch(__name__)
@@ -51,30 +52,32 @@ class PretrainConfig:
 
     # ModelConfig (`prismatic/conf/models.py`); override with --model.type `ModelRegistry.<MODEL>.model_id`
     model: ModelConfig = field(
-        default_factory=ModelConfig.get_choice_class(ModelRegistry.PRISM_DINOSIGLIP_CONTROLLED_7B.model_id)
+        default_factory=ModelConfig.get_choice_class(ModelRegistry.DINOSIGLIP_PHI3_LORA.model_id)
     )
 
     # DatasetConfig (`prismatic/conf/datasets.py`); override with --dataset.type `DatasetRegistry.<DATASET>.dataset_id`
     dataset: DatasetConfig = field(
-        default_factory=DatasetConfig.get_choice_class(DatasetRegistry.LLAVA_V15.dataset_id)
+        default_factory=DatasetConfig.get_choice_class(DatasetRegistry.RLDS_OXE_QNA.dataset_id)
     )
 
     # Pretraining Stage in < align (projector-only) | finetune (projector + LLM) | full-finetune (all) >
     # ---
-    stage: str = "finetune"                                         # Pretraining Stage in < align | finetune >
-    pretrained_checkpoint: Optional[Path] = None                    # Pretrained Checkpoint to Load (for `finetune`)
-                                                                    #   if None =>> will match on (run_dir / `align`)
+    stage: str = "lora-finetune"                                    # Pretraining Stage in < align | finetune >
+
+    # Pretrained Checkpoint to Load (for `finetune`)
+    # if None =>> will match on (run_dir / `align`)
+    pretrained_checkpoint: Optional[Path] = Path("/home/ubuntu/prismatic_vlms/runs/phi3_align_checkpoint/latest-checkpoint.pt")
 
     # Run Arguments
     run_id: Optional[str] = None                                    # Run ID for logging, Weights & Biases
-    run_root_dir: Path = Path("/mnt/fsx/x-prismatic-vlms/runs")     # Path to directory to store logs & checkpoints
+    run_root_dir: Path = Path("/home/ubuntu/prismatic_vlms/runs")   # Path to directory to store logs & checkpoints
     seed: int = 7                                                   # Random seed (for reproducibility)
 
     # HF Hub Credentials (for any gated models)
-    hf_token: Union[str, Path] = Path(".hf_token")                  # Environment variable or Path to HF Token
+    hf_token: Union[str, Path] = "HF_TOKEN"                         # Environment variable or Path to HF Token
 
     # Tracking Parameters
-    trackers: Tuple[str, ...] = ("jsonl", "wandb")                  # Trackers to initialize (if W&B, add config!)
+    trackers: Tuple[str, ...] = ("jsonl", )                         # Trackers to initialize (if W&B, add config!)
     wandb_project: str = "onyx-vlms"                                # Name of W&B project (default: `prismatic`)
     wandb_entity: Optional[str] = "stanford-voltron"                # Name of W&B entity (default: None)
 

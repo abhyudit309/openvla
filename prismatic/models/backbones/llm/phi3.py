@@ -1,33 +1,10 @@
 """
-Phi3ForCausalLM(
-  (model): Phi3Model(
-    (embed_tokens): Embedding(32064, 3072, padding_idx=32000)
-    (embed_dropout): Dropout(p=0.0, inplace=False)
-    (layers): ModuleList(
-      (0-31): 32 x Phi3DecoderLayer(
-        (self_attn): Phi3Attention(
-          (o_proj): Linear(in_features=3072, out_features=3072, bias=False)
-          (qkv_proj): Linear(in_features=3072, out_features=9216, bias=False)
-          (rotary_emb): Phi3RotaryEmbedding()
-        )
-        (mlp): Phi3MLP(
-          (gate_up_proj): Linear(in_features=3072, out_features=16384, bias=False)
-          (down_proj): Linear(in_features=8192, out_features=3072, bias=False)
-          (activation_fn): SiLU()
-        )
-        (input_layernorm): Phi3RMSNorm()
-        (resid_attn_dropout): Dropout(p=0.0, inplace=False)
-        (resid_mlp_dropout): Dropout(p=0.0, inplace=False)
-        (post_attention_layernorm): Phi3RMSNorm()
-      )
-    )
-    (norm): Phi3RMSNorm()
-  )
-  (lm_head): Linear(in_features=3072, out_features=32064, bias=False)
-)
+phi3.py
 
+Class definition for Phi3 LLM.
 """
-from typing import Optional, Type
+
+from typing import Optional, Type, Sequence
 
 import torch
 from torch import nn as nn
@@ -59,7 +36,7 @@ class Phi3LLMBackbone(HFCausalLLMBackbone):
         hf_token: Optional[str] = None,
         inference_mode: bool = False,
         use_flash_attention_2: bool = False,
-        enable_peft = True, #      <<<<<<<<<<<<<<<         ################### set this to True for finetune stage #######################
+        enable_peft = True,
         lora_config = LoraConfig(
             r=128, 
             lora_alpha=256, 
@@ -95,3 +72,8 @@ class Phi3LLMBackbone(HFCausalLLMBackbone):
     @property
     def half_precision_dtype(self) -> torch.dtype:
         return torch.bfloat16
+    
+    # Copied from llama2.py directly. FIX later!
+    @property
+    def last_layer_finetune_modules(self) -> Sequence[nn.Module]:
+        return (self.llm.model.embed_tokens, self.llm.model.layers[-1], self.llm.lm_head)

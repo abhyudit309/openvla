@@ -110,6 +110,23 @@ class LLaVa_LVIS4V_LRV_Config(DatasetConfig):
     dataset_root_dir: Path = Path("/mnt/fsx/skaramcheti/datasets/prismatic-vlms")
 
 
+# RLDS dataset
+@dataclass
+class RLDS_OpenX_QnA_Config(DatasetConfig):
+    dataset_id: str = "rlds-oxe-qna"
+
+    # Same as finetune as of now. Might need to FIX later.
+    align_stage_components: Tuple[Path, Path] = (
+        Path("rlds_oxe_qna/rlds_oxe_qna_data.json"),
+        Path("rlds_oxe_qna/"),
+    )
+    finetune_stage_components: Tuple[Path, Path] = (
+        Path("rlds_oxe_qna/rlds_oxe_qna_data.json"),
+        Path("rlds_oxe_qna/"),
+    )
+    dataset_root_dir: Path = Path("/home/ubuntu")
+
+
 # === Define a Dataset Registry Enum for Reference & Validation =>> all *new* datasets must be added here! ===
 @unique
 class DatasetRegistry(Enum):
@@ -122,6 +139,9 @@ class DatasetRegistry(Enum):
     LLAVA_LRV = LLaVa_LRV_Config
 
     LLAVA_LVIS4V_LRV = LLaVa_LVIS4V_LRV_Config
+
+    # === RLDS Open-X Qna ===
+    RLDS_OXE_QNA = RLDS_OpenX_QnA_Config
 
     @property
     def dataset_id(self) -> str:

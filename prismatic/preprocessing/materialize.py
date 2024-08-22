@@ -17,7 +17,10 @@ from prismatic.preprocessing.datasets import AlignDataset, FinetuneDataset
 from prismatic.util.data_utils import PaddedCollatorForLanguageModeling
 
 # Dataset Initializers =>> Maps Stage --> cls()
-DATASET_INITIALIZER = {"align": AlignDataset, "finetune": FinetuneDataset, "full-finetune": FinetuneDataset}
+DATASET_INITIALIZER = {"align": AlignDataset, 
+                       "finetune": FinetuneDataset, 
+                       "lora-finetune": FinetuneDataset, 
+                       "full-finetune": FinetuneDataset}
 
 
 def get_dataset_and_collator(
@@ -44,6 +47,17 @@ def get_dataset_and_collator(
         return dataset, collator
 
     elif stage == "finetune":
+        annotation_json, image_dir = dataset_cfg.finetune_stage_components
+        dataset = dataset_cls(
+            dataset_root_dir / annotation_json,
+            dataset_root_dir / image_dir,
+            image_transform,
+            tokenizer,
+            prompt_builder_fn=prompt_builder_fn,
+        )
+        return dataset, collator
+    
+    elif stage == "lora-finetune":
         annotation_json, image_dir = dataset_cfg.finetune_stage_components
         dataset = dataset_cls(
             dataset_root_dir / annotation_json,
