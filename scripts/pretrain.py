@@ -81,6 +81,9 @@ class PretrainConfig:
     wandb_project: str = "onyx-vlms"                                # Name of W&B project (default: `prismatic`)
     wandb_entity: Optional[str] = "stanford-voltron"                # Name of W&B entity (default: None)
 
+    # Additional parameters
+    sampling_percent: Optional[float] = 0.01                        # Sampling percentage for RLDS Open-X datasets with QnAs
+
     def __post_init__(self) -> None:
         """Set optimization parameters based on `stage` in {"align", "finetune"}."""
         if self.stage == "align":
@@ -185,6 +188,7 @@ def pretrain(cfg: PretrainConfig) -> None:
         prompt_builder_fn=llm_backbone.prompt_builder_fn,
         default_image_resolution=vision_backbone.default_image_resolution,
         padding_side=tokenizer.padding_side,
+        sampling_percent=cfg.sampling_percent
     )
 
     # Create Train Strategy

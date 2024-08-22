@@ -11,19 +11,25 @@ random access image reading is relatively cheap/fast.
 
 import copy
 import json
+import random
+import os
 from pathlib import Path
-from typing import Dict, List, Tuple, Type
+from typing import Dict, List, Tuple, Type, Optional
 
 import torch
 from PIL import Image
 from torch.utils.data import Dataset
 from transformers import CodeGenTokenizerFast, LlamaTokenizerFast, PreTrainedTokenizerBase
 
+from prismatic.overwatch import initialize_overwatch
 from prismatic.models.backbones.llm.prompting import PromptBuilder
 from prismatic.models.backbones.vision import ImageTransform
 
 # HuggingFace Default / LLaMa-2 IGNORE_INDEX (for labels)
 IGNORE_INDEX = -100
+
+# Initialize Overwatch
+overwatch = initialize_overwatch(__name__)
 
 
 class AlignDataset(Dataset[Dict[str, torch.Tensor]]):
@@ -33,6 +39,7 @@ class AlignDataset(Dataset[Dict[str, torch.Tensor]]):
         image_dir: Path,
         image_transform: ImageTransform,
         tokenizer: PreTrainedTokenizerBase,
+        sampling_percent: Optional[float],
     ) -> None:
         super().__init__()
         self.chat_json, self.image_dir = chat_json, image_dir
@@ -109,6 +116,7 @@ class FinetuneDataset(Dataset[Dict[str, torch.Tensor]]):
         image_transform: ImageTransform,
         tokenizer: PreTrainedTokenizerBase,
         prompt_builder_fn: Type[PromptBuilder],
+        sampling_percent: Optional[float],
     ) -> None:
         super().__init__()
         self.instruct_json, self.image_dir = instruct_json, image_dir
@@ -119,6 +127,28 @@ class FinetuneDataset(Dataset[Dict[str, torch.Tensor]]):
         # Load Instruct JSON
         with open(self.instruct_json, "r") as f:
             self.examples = json.load(f)
+
+        # We sample a subset of frames randomly if the json contains data from RLDS Open-X QnA data.
+        if "oxe" in str(self.instruct_json).lower():
+            assert sampling_percent is not None, "Open-X requires specification of a sampling percentage."
+            original_num_examples = len(self.examples)
+            sampled_examples = []
+
+            # Set seed just in case!
+            assert "EXPERIMENT_GLOBAL_SEED" in os.environ.keys(), "No seed set!"
+            seed = int(os.environ["EXPERIMENT_GLOBAL_SEED"])
+            random.seed(seed)
+
+            # Iterate over examples
+            for example in self.examples:
+                conversations = example["conversations"]
+                if len(conversations) > 6: 
+                    # more than 3 QnA pairs
+                    sampled_examples.append(example)
+                elif random.random() <= sampling_percent:
+                    sampled_examples.append(example)
+            self.examples = sampled_examples
+            overwatch.info(f"Reduced Open-X examples from {original_num_examples} to {len(self.examples)}.")
 
     # === Unimodal + Multimodal Handling ===
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
