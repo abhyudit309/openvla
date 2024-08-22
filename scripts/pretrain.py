@@ -132,6 +132,8 @@ def pretrain(cfg: PretrainConfig) -> None:
     model_id = cfg.model.model_id
     if (dataset_id := cfg.dataset.dataset_id) == "llava-v15":
         cfg.run_id = f"{model_id}+stage-{cfg.stage}+x{cfg.seed}" if cfg.run_id is None else cfg.run_id
+    elif "oxe" in (dataset_id := cfg.dataset.dataset_id).lower():
+        cfg.run_id = f"{dataset_id}+{cfg.sampling_percent}+{model_id}+stage-{cfg.stage}+x{cfg.seed}" if cfg.run_id is None else cfg.run_id
     else:
         cfg.run_id = f"{dataset_id}+{model_id}+stage-{cfg.stage}+x{cfg.seed}" if cfg.run_id is None else cfg.run_id
 
