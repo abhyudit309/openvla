@@ -83,6 +83,7 @@ class PretrainConfig:
 
     # Additional parameters
     sampling_percent: Optional[float] = 0.01                        # Sampling percentage for RLDS Open-X datasets with QnAs
+    save_steps: int = 500                                           # Interval for checkpoint saving
 
     def __post_init__(self) -> None:
         """Set optimization parameters based on `stage` in {"align", "finetune"}."""
@@ -231,7 +232,7 @@ def pretrain(cfg: PretrainConfig) -> None:
 
     # Run Training
     overwatch.info("Starting Training Loop")
-    train_strategy.run_training(train_dataset, collator, metrics, stage=cfg.stage, seed=cfg.seed)
+    train_strategy.run_training(train_dataset, collator, metrics, stage=cfg.stage, seed=cfg.seed, save_interval=cfg.save_steps)
 
     # Finalize
     overwatch.info("Done with Training =>> Finalizing Metrics")

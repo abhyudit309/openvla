@@ -111,6 +111,7 @@ class TrainingStrategy(ABC):
         stage: str = "finetune",
         batch_construction_strategy: str = "split-modality",
         seed: int = 7,
+        save_interval: int = 2500,
     ) -> None:
         """Run the training loop for the given `dataset` and `collator`; log losses, results to `metrics`"""
         if "finetune" in stage and batch_construction_strategy == "split-modality":
@@ -224,19 +225,21 @@ class TrainingStrategy(ABC):
                         metrics.commit(global_step=metrics.global_step + 1, lr=self.lr_scheduler.get_last_lr()[0])
                         status = metrics.push()
 
-                        # Check for Termination & Save Final Checkpoint (in case `max_steps` is not None)
-                        if self.max_steps is not None and metrics.global_step >= self.max_steps:
+                        # Check for Save Interval or Max Steps & Save Checkpoint
+                        if (terminate := (self.max_steps is not None and metrics.global_step >= self.max_steps)) or (
+                            (metrics.global_step % save_interval) == 0):
                             self.save_checkpoint(metrics.run_dir, metrics.global_step, epoch, loss.item())
                             dist.barrier()
 
-                            return
+                            if terminate:
+                                return
 
                         # Update Progress Bar
                         progress.update()
                         progress.set_description(status)
 
-            # Save checkpoint at end each epoch (if `self.max_steps` is None)
-            if self.max_steps is None:
+            # Save checkpoint at the end (if `self.max_steps` is None)
+            if (self.max_steps is None) and ((metrics.global_step % save_interval) != 0):
                 self.save_checkpoint(metrics.run_dir, metrics.global_step, epoch, loss.item())
                 dist.barrier()
 

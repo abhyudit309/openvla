@@ -1,7 +1,7 @@
 """
 phi3.py
 
-Class definition for Phi3 LLM.
+Class definition for the Phi3 LLM.
 """
 
 from typing import Optional, Type, Sequence
@@ -42,7 +42,7 @@ class Phi3LLMBackbone(HFCausalLLMBackbone):
             lora_alpha=256, 
             lora_dropout=0.05,
             bias="none",
-            target_modules= [
+            target_modules=[
                 "qkv_proj",
                 "o_proj",
                 "down_proj",
