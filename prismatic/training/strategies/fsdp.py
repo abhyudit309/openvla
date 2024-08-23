@@ -99,6 +99,7 @@ class FSDPStrategy(TrainingStrategy):
         epoch: int,
         train_loss: Optional[float] = None,
         only_trainable: bool = True,
+        overwrite: bool = False,
     ) -> None:
         """Save a checkpoint to the `run_dir` only containing the state_dicts for trainable parameters by default."""
         assert isinstance(self.vlm, FSDP), "FSDPStrategy.save_checkpoint assumes VLM is already wrapped in FSDP!"
@@ -125,6 +126,22 @@ class FSDPStrategy(TrainingStrategy):
                     checkpoint_path = (
                         checkpoint_dir / f"step-{global_step:06d}-epoch-{epoch:02d}-loss={train_loss:.4f}.pt"
                     )
+
+                # Scan for existing checkpoint and compare losses
+                existing_checkpoints = list(checkpoint_dir.glob("*.pt"))
+                if overwrite and existing_checkpoints:
+                    assert len(existing_checkpoints) == 1, "Cannot have more than 1 checkpoint if overwriting!"
+                    existing_checkpoint = existing_checkpoints[0]
+                    existing_loss_str = existing_checkpoint.stem.split('=')[-1]
+                    existing_loss = float(existing_loss_str)
+
+                    # Compare losses
+                    if train_loss is not None and train_loss < existing_loss:
+                        overwatch.info(f"Overwriting existing checkpoint (loss: {existing_loss}) with new checkpoint (loss: {train_loss})!")
+                        existing_checkpoint.unlink()
+                    else:
+                        overwatch.info(f"Discarding new checkpoint (loss: {train_loss}) and keeping exising checkpoint (loss: {existing_loss})!")
+                        return
 
                 # Save Checkpoint & Copy Latest to `latest-checkpoint.pt`
                 torch.save({"model": model_state_dicts}, checkpoint_path)

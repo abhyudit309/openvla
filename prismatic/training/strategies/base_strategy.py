@@ -95,6 +95,7 @@ class TrainingStrategy(ABC):
         epoch: int,
         train_loss: Optional[float] = None,
         only_trainable: bool = True,
+        overwrite: bool = False,
     ) -> None: ...
 
     @abstractmethod
@@ -112,6 +113,7 @@ class TrainingStrategy(ABC):
         batch_construction_strategy: str = "split-modality",
         seed: int = 7,
         save_interval: int = 2500,
+        overwrite: bool = False,
     ) -> None:
         """Run the training loop for the given `dataset` and `collator`; log losses, results to `metrics`"""
         if "finetune" in stage and batch_construction_strategy == "split-modality":
@@ -228,7 +230,7 @@ class TrainingStrategy(ABC):
                         # Check for Save Interval or Max Steps & Save Checkpoint
                         if (terminate := (self.max_steps is not None and metrics.global_step >= self.max_steps)) or (
                             (metrics.global_step % save_interval) == 0):
-                            self.save_checkpoint(metrics.run_dir, metrics.global_step, epoch, loss.item())
+                            self.save_checkpoint(metrics.run_dir, metrics.global_step, epoch, loss.item(), overwrite=overwrite)
                             dist.barrier()
 
                             if terminate:
@@ -240,7 +242,7 @@ class TrainingStrategy(ABC):
 
             # Save checkpoint at the end (if `self.max_steps` is None)
             if (self.max_steps is None) and ((metrics.global_step % save_interval) != 0):
-                self.save_checkpoint(metrics.run_dir, metrics.global_step, epoch, loss.item())
+                self.save_checkpoint(metrics.run_dir, metrics.global_step, epoch, loss.item(), overwrite=overwrite)
                 dist.barrier()
 
     # === VLA Training ===
