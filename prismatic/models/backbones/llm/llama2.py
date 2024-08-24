@@ -61,10 +61,10 @@ class LLaMa2LLMBackbone(HFCausalLLMBackbone):
         hf_token: Optional[str] = None,
         inference_mode: bool = False,
         use_flash_attention_2: bool = True,
-        enable_peft: bool = False,
+        enable_peft: bool = True,
         lora_config = LoraConfig(
             r=64,
-            lora_alpha=128,
+            lora_alpha=64,
             lora_dropout=0.05,
             bias="none",
             target_modules=[
