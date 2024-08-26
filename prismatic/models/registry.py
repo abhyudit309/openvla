@@ -683,6 +683,19 @@ MODEL_REGISTRY = {
             "train_epochs": 1,
         }
     },
+    "dino-siglip-phi3-lora-model": {
+        "model_id": "dino-siglip-phi3-lora-model",
+        "names": ["Dino Siglip Phi-3 LoRa Model"],
+        "description": {
+            "name": "Dino Siglip Phi-3 LoRa Model",
+            "optimization_procedure": "single-stage",
+            "visual_representation": "DINOv2 ViT-L/14 + SigLIP ViT-SO/14 @ 384px",
+            "image_processing": "Naive Resize",
+            "language_model": "Phi-3 Base",
+            "datasets": ["LLaVa v1.5 Instruct"],
+            "train_epochs": 1,
+        }
+    },
 }
 
 # Build Global Registry (Model ID, Name) -> Metadata

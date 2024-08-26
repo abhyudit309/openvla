@@ -121,6 +121,53 @@ class PrismaticVLM(VLM):
             vlm.eval()
 
         return vlm
+    
+    @classmethod
+    def from_pretrained_v2(
+        cls,
+        pretrained_checkpoint: Path,
+        model_id: str,
+        vision_backbone: VisionBackbone,
+        llm_backbone: LLMBackbone,
+        enable_mixed_precision_training: bool = True,
+        arch_specifier: str = "gelu-mlp",
+        freeze_weights: bool = True,
+        **kwargs,
+    ) -> PrismaticVLM:
+        """
+        Initialize a PrismaticVLM from a pretrained checkpoint, freezing all weights, tailored for inference.
+        This is different from the above in that it only expects the "projector" key in the checkpoint.
+        For example, if we want to load from an align checkpoint.
+        """
+        vlm = cls(
+            model_id,
+            vision_backbone,
+            llm_backbone,
+            enable_mixed_precision_training=enable_mixed_precision_training,
+            arch_specifier=arch_specifier,
+            **kwargs,
+        )
+
+        # Load from Checkpoint
+        # Key difference from above: should load only the *projector* weights
+        model_state_dict = torch.load(pretrained_checkpoint, map_location="cpu")["model"]
+        assert "projector" in model_state_dict, "PrismaticVLM `from_pretrained_v2` expects checkpoint with key for `projector`!"
+
+        vlm.projector.load_state_dict(model_state_dict["projector"])
+
+        # Load the *llm* weights if provided!
+        if "llm_backbone" in model_state_dict.keys():
+            vlm.llm_backbone.load_state_dict(model_state_dict["llm_backbone"])
+
+        if "vision_backbone" in model_state_dict.keys():
+            vlm.vision_backbone.load_state_dict(model_state_dict["vision_backbone"])
+
+        # Freeze Weights
+        if freeze_weights:
+            vlm.requires_grad_(False)
+            vlm.eval()
+
+        return vlm
 
     def get_prompt_builder(self, system_prompt: Optional[str] = None) -> PromptBuilder:
         prompt_initializer: Type[PromptBuilder] = self.llm_backbone.prompt_builder_fn

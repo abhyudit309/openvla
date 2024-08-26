@@ -105,12 +105,12 @@ def load(
         model_cfg["llm_backbone_id"],
         llm_max_length=model_cfg.get("llm_max_length", 2048),
         hf_token=hf_token,
-        inference_mode=not load_for_training,
+        inference_mode=not load_for_training, # Set to False for phi-3 zero shot
     )
 
     # Load VLM using `from_pretrained` (clobbers HF syntax... eventually should reconcile)
     overwatch.info(f"Loading VLM [bold blue]{model_cfg['model_id']}[/] from Checkpoint")
-    vlm = PrismaticVLM.from_pretrained(
+    vlm = PrismaticVLM.from_pretrained_v2(
         checkpoint_pt,
         model_cfg["model_id"],
         vision_backbone,
