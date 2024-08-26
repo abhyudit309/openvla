@@ -49,20 +49,18 @@ class DDPStrategy(TrainingStrategy):
         else:
             checkpoint_path = checkpoint_dir / f"step-{global_step:06d}-epoch-{epoch:02d}-loss={train_loss:.4f}.pt"
 
-        # Scan for existing checkpoint and compare losses
+        # Scan for existing checkpoint
         existing_checkpoints = list(checkpoint_dir.glob("*.pt"))
         if overwrite and existing_checkpoints:
             assert len(existing_checkpoints) == 1, "Cannot have more than 1 checkpoint if overwriting!"
             existing_checkpoint = existing_checkpoints[0]
-            existing_loss_str = existing_checkpoint.stem.split('=')[-1]
-            existing_loss = float(existing_loss_str)
 
-            # Compare losses
-            if train_loss is not None and train_loss < existing_loss:
-                overwatch.info(f"Overwriting existing checkpoint (loss: {existing_loss}) with new checkpoint (loss: {train_loss})!")
+            # Remove existing checkpoint
+            if train_loss is not None:
+                overwatch.info("Overwriting existing checkpoint with new checkpoint!")
                 existing_checkpoint.unlink()
             else:
-                overwatch.info(f"Discarding new checkpoint (loss: {train_loss}) and keeping exising checkpoint (loss: {existing_loss})!")
+                overwatch.info("Discarding new checkpoint as loss is None!")
                 return
 
         # Save Checkpoint & Copy Latest to `latest-checkpoint.pt`
