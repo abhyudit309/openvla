@@ -111,8 +111,8 @@ class HFCausalLLMBackbone(LLMBackbone, ABC):
         hf_token: Optional[str] = None,
         inference_mode: bool = False,
         use_flash_attention_2: bool = False,
-        enable_peft: bool = False,
-        lora_peft_config = None,
+        use_lora: bool = False,
+        lora_config = None,
     ) -> None:
         super().__init__(llm_backbone_id)
         self.llm_family = llm_family
@@ -134,8 +134,8 @@ class HFCausalLLMBackbone(LLMBackbone, ABC):
             )
 
             # Load peft model
-            if enable_peft:
-                self.llm = get_peft_model(self.llm, lora_peft_config)
+            if use_lora:
+                self.llm = get_peft_model(self.llm, lora_config)
 
         # [Contract] `inference_mode` means we're loading from a pretrained checkpoint; no need to load base weights!
         else:
@@ -144,8 +144,8 @@ class HFCausalLLMBackbone(LLMBackbone, ABC):
             self.llm = llm_cls._from_config(llm_config)
 
             # Load peft model
-            if enable_peft:
-                self.llm = get_peft_model(self.llm, lora_peft_config)
+            if use_lora:
+                self.llm = get_peft_model(self.llm, lora_config)
 
         # Lightweight Handling (with extended explanation) for setting some LLM Parameters
         #   => Set `decoder.use_cache = False` --> incompatible with gradient checkpointing (+ training in general)

@@ -24,12 +24,13 @@ import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, Tuple, Union
+from typing import Optional, Tuple, Union, List
 
 import draccus
 import torch
 import torch.distributed as dist
 import yaml
+from peft import LoraConfig
 
 from prismatic.conf import DatasetConfig, DatasetRegistry, ModelConfig, ModelRegistry
 from prismatic.models import get_llm_backbone_and_tokenizer, get_vision_backbone_and_transform, get_vlm
@@ -85,6 +86,13 @@ class PretrainConfig:
     sampling_percent: Optional[float] = 0.01                        # Sampling percentage for RLDS Open-X datasets with QnAs
     save_steps: int = 500                                           # Interval for checkpoint saving
     overwrite: bool = True                                          # Whether to overwrite checkpoints. If true, the checkpoint with the lower loss is retained.
+
+    # LoRA Arguments
+    use_lora: bool = True                                           # Whether to use LoRA fine-tuning
+    lora_rank: int = 128                                            # Rank of LoRA weight matrix
+    lora_alpha: int = 256                                           # LoRA alpha
+    lora_dropout: float = 0.05                                      # Dropout applied to LoRA weights
+    lora_target_modules: List[str] = ["qkv_proj", "o_proj", "down_proj", "gate_up_proj"]  # LoRA target modules
 
     def __post_init__(self) -> None:
         """Set optimization parameters based on `stage` in {"align", "finetune"}."""
@@ -160,8 +168,25 @@ def pretrain(cfg: PretrainConfig) -> None:
 
     # Load LLM Backbone --> on CPU, in Full Precision (initializing Tokenizer + handling special tokens if necessary)
     overwatch.info(f"Loading Pretrained LLM [bold]{cfg.model.llm_backbone_id}[/] via HF Transformers")
+    # Wrap LLM with PEFT (LoraConfig), if applicable
+    lora_config = None
+    if cfg.use_lora:
+        assert "lora" in cfg.stage, "Should use LoRA fine-tuning stage if `use_lora` is set to True!"
+        lora_config = LoraConfig(
+            r=cfg.lora_rank,
+            lora_alpha=cfg.lora_alpha,
+            lora_dropout=cfg.lora_dropout,
+            bias="none",
+            target_modules=cfg.lora_target_modules,
+            task_type="CAUSAL_LM",
+        )
+
     llm_backbone, tokenizer = get_llm_backbone_and_tokenizer(
-        cfg.model.llm_backbone_id, llm_max_length=cfg.model.llm_max_length, hf_token=hf_token
+        cfg.model.llm_backbone_id, 
+        llm_max_length=cfg.model.llm_max_length, 
+        hf_token=hf_token,
+        use_lora=cfg.use_lora,
+        lora_config=lora_config,
     )
 
     # Create VLM => wraps `vision_backbone` and `llm`
