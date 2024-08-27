@@ -24,7 +24,7 @@ import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional, Tuple, Union, List
+from typing import Optional, Tuple, Union
 
 import draccus
 import torch
@@ -93,7 +93,7 @@ class PretrainConfig:
     lora_rank: int = 128                                            # Rank of LoRA weight matrix
     lora_alpha: int = 256                                           # LoRA alpha
     lora_dropout: float = 0.05                                      # Dropout applied to LoRA weights
-    lora_target_modules: List[str] = ["qkv_proj", "o_proj", "down_proj", "gate_up_proj"]  # LoRA target modules
+    lora_target_modules = ["qkv_proj", "o_proj", "down_proj", "gate_up_proj"]  # LoRA target modules
 
     def __post_init__(self) -> None:
         """Set optimization parameters based on `stage` in {"align", "finetune"}."""
