@@ -508,6 +508,7 @@ class DINO_SigLIP_PHI3_LORA(LLaVa_v15_Reproduction_7B):
     llm_max_length = 4096
     align_global_batch_size: int = 64
     align_per_device_batch_size: int = 8
+    finetune_epochs: int = 2
     finetune_global_batch_size: int = 32
     finetune_per_device_batch_size: int = 8
 

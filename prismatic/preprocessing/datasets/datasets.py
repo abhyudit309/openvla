@@ -39,7 +39,8 @@ class AlignDataset(Dataset[Dict[str, torch.Tensor]]):
         image_dir: Path,
         image_transform: ImageTransform,
         tokenizer: PreTrainedTokenizerBase,
-        sampling_percent: Optional[float],
+        train_val_split_3qna: Optional[float],
+        train_val_split_multi_qna: Optional[float],
     ) -> None:
         super().__init__()
         self.chat_json, self.image_dir = chat_json, image_dir
@@ -116,7 +117,8 @@ class FinetuneDataset(Dataset[Dict[str, torch.Tensor]]):
         image_transform: ImageTransform,
         tokenizer: PreTrainedTokenizerBase,
         prompt_builder_fn: Type[PromptBuilder],
-        sampling_percent: Optional[float],
+        train_val_split_3qna: Optional[float],
+        train_val_split_multi_qna: Optional[float],
     ) -> None:
         super().__init__()
         self.instruct_json, self.image_dir = instruct_json, image_dir
@@ -130,7 +132,7 @@ class FinetuneDataset(Dataset[Dict[str, torch.Tensor]]):
 
         # We sample a subset of frames randomly if the json contains data from RLDS Open-X QnA data.
         if "oxe" in str(self.instruct_json).lower():
-            assert sampling_percent is not None, "Open-X requires specification of a sampling percentage."
+            assert train_val_split_3qna is not None and train_val_split_multi_qna is not None, "Open-X requires specification of train-val splits!"
             original_num_examples = len(self.examples)
             sampled_examples = []
 
@@ -144,8 +146,9 @@ class FinetuneDataset(Dataset[Dict[str, torch.Tensor]]):
                 conversations = example["conversations"]
                 if len(conversations) > 6: 
                     # more than 3 QnA pairs
-                    sampled_examples.append(example)
-                elif random.random() <= sampling_percent:
+                    if random.random() <= train_val_split_multi_qna:
+                        sampled_examples.append(example)
+                elif random.random() <= train_val_split_3qna:
                     sampled_examples.append(example)
             self.examples = sampled_examples
             overwatch.info(f"Reduced Open-X examples from {original_num_examples} to {len(self.examples)}.")

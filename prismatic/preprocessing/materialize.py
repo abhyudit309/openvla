@@ -31,7 +31,8 @@ def get_dataset_and_collator(
     prompt_builder_fn: Type[PromptBuilder],
     default_image_resolution: Tuple[int, int, int],
     padding_side: str = "right",
-    sampling_percent: Optional[float] = None,
+    train_val_split_3qna: Optional[float] = None,
+    train_val_split_multi_qna: Optional[float] = None,
 ) -> Tuple[Dataset, PaddedCollatorForLanguageModeling]:
     dataset_cls = DATASET_INITIALIZER[stage]
     dataset_root_dir = dataset_cfg.dataset_root_dir
@@ -47,7 +48,8 @@ def get_dataset_and_collator(
             dataset_root_dir / image_dir, 
             image_transform, 
             tokenizer,
-            sampling_percent=sampling_percent,
+            train_val_split_3qna=train_val_split_3qna,
+            train_val_split_multi_qna=train_val_split_multi_qna,
         )
         return dataset, collator
 
@@ -59,7 +61,8 @@ def get_dataset_and_collator(
             image_transform,
             tokenizer,
             prompt_builder_fn=prompt_builder_fn,
-            sampling_percent=sampling_percent,
+            train_val_split_3qna=train_val_split_3qna,
+            train_val_split_multi_qna=train_val_split_multi_qna,
         )
         return dataset, collator
     
@@ -71,7 +74,8 @@ def get_dataset_and_collator(
             image_transform,
             tokenizer,
             prompt_builder_fn=prompt_builder_fn,
-            sampling_percent=sampling_percent,
+            train_val_split_3qna=train_val_split_3qna,
+            train_val_split_multi_qna=train_val_split_multi_qna,
         )
         return dataset, collator
 
@@ -83,7 +87,8 @@ def get_dataset_and_collator(
             image_transform,
             tokenizer,
             prompt_builder_fn=prompt_builder_fn,
-            sampling_percent=sampling_percent,
+            train_val_split_3qna=train_val_split_3qna,
+            train_val_split_multi_qna=train_val_split_multi_qna,
         )
         return dataset, collator
 

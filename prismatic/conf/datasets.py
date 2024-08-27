@@ -127,6 +127,23 @@ class RLDS_OpenX_QnA_Config(DatasetConfig):
     dataset_root_dir: Path = Path("/home/ubuntu")
 
 
+# RLDS dataset V2 -> Added <pose>..</pose> tags and modified system prompt
+@dataclass
+class RLDS_OpenX_QnA_Config_V2(DatasetConfig):
+    dataset_id: str = "rlds-oxe-qna-v2"
+
+    # Same as finetune as of now. Might need to FIX later.
+    align_stage_components: Tuple[Path, Path] = (
+        Path("rlds_oxe_qna/rlds_oxe_qna_data_v2.json"),
+        Path("rlds_oxe_qna/"),
+    )
+    finetune_stage_components: Tuple[Path, Path] = (
+        Path("rlds_oxe_qna/rlds_oxe_qna_data_v2.json"),
+        Path("rlds_oxe_qna/"),
+    )
+    dataset_root_dir: Path = Path("/home/ubuntu")
+
+
 # === Define a Dataset Registry Enum for Reference & Validation =>> all *new* datasets must be added here! ===
 @unique
 class DatasetRegistry(Enum):
@@ -142,6 +159,7 @@ class DatasetRegistry(Enum):
 
     # === RLDS Open-X Qna ===
     RLDS_OXE_QNA = RLDS_OpenX_QnA_Config
+    RLDS_OXE_QNA_V2 = RLDS_OpenX_QnA_Config_V2
 
     @property
     def dataset_id(self) -> str:

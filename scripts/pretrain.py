@@ -53,12 +53,12 @@ class PretrainConfig:
 
     # ModelConfig (`prismatic/conf/models.py`); override with --model.type `ModelRegistry.<MODEL>.model_id`
     model: ModelConfig = field(
-        default_factory=ModelConfig.get_choice_class(ModelRegistry.PRISM_DINOSIGLIP_7B.model_id)
+        default_factory=ModelConfig.get_choice_class(ModelRegistry.DINOSIGLIP_PHI3_LORA.model_id)
     )
 
     # DatasetConfig (`prismatic/conf/datasets.py`); override with --dataset.type `DatasetRegistry.<DATASET>.dataset_id`
     dataset: DatasetConfig = field(
-        default_factory=DatasetConfig.get_choice_class(DatasetRegistry.RLDS_OXE_QNA.dataset_id)
+        default_factory=DatasetConfig.get_choice_class(DatasetRegistry.RLDS_OXE_QNA_V2.dataset_id)
     )
 
     # Pretraining Stage in < align (projector-only) | finetune (projector + LLM) | full-finetune (all) >
@@ -67,7 +67,7 @@ class PretrainConfig:
 
     # Pretrained Checkpoint to Load (for `finetune`)
     # if None =>> will match on (run_dir / `align`)
-    pretrained_checkpoint: Optional[Path] = Path("/home/ubuntu/prismatic_vlms/runs/prism-dinosiglip+7b_checkpoint/latest-checkpoint.pt")
+    pretrained_checkpoint: Optional[Path] = Path("/home/ubuntu/prismatic_vlms/runs/phi3_align_checkpoint/checkpoints/latest-checkpoint.pt")
 
     # Run Arguments
     run_id: Optional[str] = None                                    # Run ID for logging, Weights & Biases
@@ -83,7 +83,8 @@ class PretrainConfig:
     wandb_entity: Optional[str] = "stanford-voltron"                # Name of W&B entity (default: None)
 
     # Additional parameters
-    sampling_percent: Optional[float] = 0.01                        # Sampling percentage for RLDS Open-X datasets with QnAs
+    train_val_split_3qna: Optional[float] = 0.01                    # Training-validation split for conversations in RLDS Open-X datasets with 3 QnAs
+    train_val_split_multi_qna: Optional[float] = 0.9                # Training-validation split for conversations in RLDS Open-X datasets with more than 3 QnAs
     save_steps: int = 500                                           # Interval for checkpoint saving
     overwrite: bool = True                                          # Whether to overwrite checkpoints. If true, the checkpoint with the lower loss is retained.
 
@@ -143,7 +144,7 @@ def pretrain(cfg: PretrainConfig) -> None:
     if (dataset_id := cfg.dataset.dataset_id) == "llava-v15":
         cfg.run_id = f"{model_id}+stage-{cfg.stage}+x{cfg.seed}" if cfg.run_id is None else cfg.run_id
     elif "oxe" in (dataset_id := cfg.dataset.dataset_id).lower():
-        cfg.run_id = f"{dataset_id}+{cfg.sampling_percent}+{model_id}+stage-{cfg.stage}+x{cfg.seed}" if cfg.run_id is None else cfg.run_id
+        cfg.run_id = f"{dataset_id}+{cfg.train_val_split_3qna}+{cfg.train_val_split_multi_qna}+{model_id}+stage-{cfg.stage}+x{cfg.seed}" if cfg.run_id is None else cfg.run_id
     else:
         cfg.run_id = f"{dataset_id}+{model_id}+stage-{cfg.stage}+x{cfg.seed}" if cfg.run_id is None else cfg.run_id
 
@@ -217,7 +218,8 @@ def pretrain(cfg: PretrainConfig) -> None:
         prompt_builder_fn=llm_backbone.prompt_builder_fn,
         default_image_resolution=vision_backbone.default_image_resolution,
         padding_side=tokenizer.padding_side,
-        sampling_percent=cfg.sampling_percent
+        train_val_split_3qna=cfg.train_val_split_3qna,
+        train_val_split_multi_qna=cfg.train_val_split_multi_qna
     )
 
     # Create Train Strategy
