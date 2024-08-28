@@ -8,7 +8,7 @@ IDs, mappings to paper experiments, and short descriptions), as well as for load
 import json
 import os
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import List, Optional, Union, Any
 
 from huggingface_hub import HfFileSystem, hf_hub_download
 
@@ -54,6 +54,7 @@ def load(
     hf_token: Optional[str] = None,
     cache_dir: Optional[Union[str, Path]] = None,
     load_for_training: bool = False,
+    **loading_kwargs: Any,
 ) -> PrismaticVLM:
     """Loads a pretrained PrismaticVLM from either local disk or the HuggingFace Hub."""
     if os.path.isdir(model_id_or_path):
@@ -105,7 +106,7 @@ def load(
         model_cfg["llm_backbone_id"],
         llm_max_length=model_cfg.get("llm_max_length", 2048),
         hf_token=hf_token,
-        inference_mode=not load_for_training, # Set to False for phi-3 zero shot
+        **loading_kwargs,
     )
 
     # Load VLM using `from_pretrained` (clobbers HF syntax... eventually should reconcile)
