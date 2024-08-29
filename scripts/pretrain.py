@@ -53,12 +53,12 @@ class PretrainConfig:
 
     # ModelConfig (`prismatic/conf/models.py`); override with --model.type `ModelRegistry.<MODEL>.model_id`
     model: ModelConfig = field(
-        default_factory=ModelConfig.get_choice_class(ModelRegistry.DINOSIGLIP_PHI3_LORA.model_id)
+        default_factory=ModelConfig.get_choice_class(ModelRegistry.PRISM_DINOSIGLIP_7B.model_id)
     )
 
     # DatasetConfig (`prismatic/conf/datasets.py`); override with --dataset.type `DatasetRegistry.<DATASET>.dataset_id`
     dataset: DatasetConfig = field(
-        default_factory=DatasetConfig.get_choice_class(DatasetRegistry.RLDS_OXE_QNA_V2.dataset_id)
+        default_factory=DatasetConfig.get_choice_class(DatasetRegistry.RLDS_OXE_QNA_V3.dataset_id)
     )
 
     # Pretraining Stage in < align (projector-only) | finetune (projector + LLM) | full-finetune (all) >
@@ -67,7 +67,7 @@ class PretrainConfig:
 
     # Pretrained Checkpoint to Load (for `finetune`)
     # if None =>> will match on (run_dir / `align`)
-    pretrained_checkpoint: Optional[Path] = Path("/home/ubuntu/prismatic_vlms/runs/phi3_align_checkpoint/checkpoints/latest-checkpoint.pt")
+    pretrained_checkpoint: Optional[Path] = Path("/home/ubuntu/prismatic_vlms/runs/prism-dinosiglip+7b_checkpoint/checkpoints/latest-checkpoint.pt")
 
     # Run Arguments
     run_id: Optional[str] = None                                    # Run ID for logging, Weights & Biases
@@ -90,10 +90,10 @@ class PretrainConfig:
 
     # LoRA Arguments
     use_lora: bool = True                                           # Whether to use LoRA fine-tuning
-    lora_rank: int = 128                                            # Rank of LoRA weight matrix
-    lora_alpha: int = 256                                           # LoRA alpha
+    lora_rank: int = 64                                             # Rank of LoRA weight matrix
+    lora_alpha: int = 64                                            # LoRA alpha
     lora_dropout: float = 0.05                                      # Dropout applied to LoRA weights
-    lora_target_modules = ["qkv_proj", "o_proj", "down_proj", "gate_up_proj"]  # LoRA target modules
+    lora_target_modules = ["q_proj", "k_proj", "v_proj", "o_proj"]  # LoRA target modules
 
     def __post_init__(self) -> None:
         """Set optimization parameters based on `stage` in {"align", "finetune"}."""

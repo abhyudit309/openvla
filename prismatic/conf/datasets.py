@@ -144,6 +144,24 @@ class RLDS_OpenX_QnA_Config_V2(DatasetConfig):
     dataset_root_dir: Path = Path("/home/ubuntu")
 
 
+# RLDS dataset V3 -> Normalized actions and poses, fixed BGR->RGB for stanford hydra and
+# utaustin mutex, and used same system prompt as V2
+@dataclass
+class RLDS_OpenX_QnA_Config_V3(DatasetConfig):
+    dataset_id: str = "rlds-oxe-qna-v3"
+
+    # Same as finetune as of now. Might need to FIX later.
+    align_stage_components: Tuple[Path, Path] = (
+        Path("rlds_oxe_qna/rlds_oxe_qna_data_v3.json"),
+        Path("rlds_oxe_qna/"),
+    )
+    finetune_stage_components: Tuple[Path, Path] = (
+        Path("rlds_oxe_qna/rlds_oxe_qna_data_v3.json"),
+        Path("rlds_oxe_qna/"),
+    )
+    dataset_root_dir: Path = Path("/home/ubuntu")
+
+
 # === Define a Dataset Registry Enum for Reference & Validation =>> all *new* datasets must be added here! ===
 @unique
 class DatasetRegistry(Enum):
@@ -160,6 +178,7 @@ class DatasetRegistry(Enum):
     # === RLDS Open-X Qna ===
     RLDS_OXE_QNA = RLDS_OpenX_QnA_Config
     RLDS_OXE_QNA_V2 = RLDS_OpenX_QnA_Config_V2
+    RLDS_OXE_QNA_V3 = RLDS_OpenX_QnA_Config_V3
 
     @property
     def dataset_id(self) -> str:
