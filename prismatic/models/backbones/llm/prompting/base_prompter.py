@@ -81,7 +81,10 @@ class PurePromptBuilder(PromptBuilder):
 
         # Special Handling for "system" prompt (turn_count == 0)
         if self.turn_count == 0:
-            sys_message = self.system_prompt + " " + self.wrap_human(message)
+            if self.system_prompt:
+                sys_message = self.system_prompt + " " + self.wrap_human(message)
+            else:
+                sys_message = self.wrap_human(message)
             wrapped_message = sys_message
         if (self.turn_count % 2) == 0:
             human_message = self.wrap_human(message)
