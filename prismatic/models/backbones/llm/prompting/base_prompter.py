@@ -86,7 +86,7 @@ class PurePromptBuilder(PromptBuilder):
             else:
                 sys_message = self.wrap_human(message)
             wrapped_message = sys_message
-        if (self.turn_count % 2) == 0:
+        elif (self.turn_count % 2) == 0:
             human_message = self.wrap_human(message)
             wrapped_message = human_message
         else:
