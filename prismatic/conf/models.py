@@ -513,6 +513,16 @@ class DINO_SigLIP_PHI3_LORA(LLaVa_v15_Reproduction_7B):
     finetune_per_device_batch_size: int = 4
 
 
+# DinoSigLip + LLaMa-3.1-8B-Instruct + Lora
+@dataclass
+class DINO_SigLIP_LLaMa3_LORA(Prism_7B_DINOSigLIP):
+    model_id: str = "dino-siglip-llama3.1-instruct-lora-model"
+    llm_backbone_id: str = "llama-3.1-8B-instruct"
+    finetune_epochs: int = 5
+    finetune_global_batch_size: int = 16
+    finetune_per_device_batch_size: int = 4
+
+
 # === Define a Model Registry Enum for Reference & Validation ===
 @unique
 class ModelRegistry(Enum):
@@ -592,6 +602,9 @@ class ModelRegistry(Enum):
 
     # === DinoSiglip + Phi3 LLM Backbone ===
     DINOSIGLIP_PHI3_LORA = DINO_SigLIP_PHI3_LORA
+
+    # === DinoSiglip + LLaMa-3.1-Instruct LLM Backbone ===
+    DINOSIGLIP_LLAMA3_LORA = DINO_SigLIP_LLaMa3_LORA
 
     @property
     def model_id(self) -> str:

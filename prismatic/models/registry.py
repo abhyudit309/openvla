@@ -696,6 +696,19 @@ MODEL_REGISTRY = {
             "train_epochs": 1,
         }
     },
+    "dino-siglip-llama3.1-instruct-lora-model": {
+        "model_id": "dino-siglip-llama3.1-instruct-lora-model",
+        "names": ["Dino Siglip LLaMa-3.1-8B-Instruct LoRa Model"],
+        "description": {
+            "name": "Dino Siglip LLaMa-3.1-8B-Instruct LoRa Model",
+            "optimization_procedure": "single-stage",
+            "visual_representation": "DINOv2 ViT-L/14 + SigLIP ViT-SO/14 @ 384px",
+            "image_processing": "Naive Resize",
+            "language_model": "LLaMa-3.1-8B-Instruct",
+            "datasets": ["LLaVa v1.5 Instruct"],
+            "train_epochs": 1,
+        }
+    },
 }
 
 # Build Global Registry (Model ID, Name) -> Metadata
