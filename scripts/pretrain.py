@@ -53,12 +53,12 @@ class PretrainConfig:
 
     # ModelConfig (`prismatic/conf/models.py`); override with --model.type `ModelRegistry.<MODEL>.model_id`
     model: ModelConfig = field(
-        default_factory=ModelConfig.get_choice_class(ModelRegistry.PRISM_DINOSIGLIP_7B.model_id)
+        default_factory=ModelConfig.get_choice_class(ModelRegistry.DINOSIGLIP_LLAMA3_LORA.model_id)
     )
 
     # DatasetConfig (`prismatic/conf/datasets.py`); override with --dataset.type `DatasetRegistry.<DATASET>.dataset_id`
     dataset: DatasetConfig = field(
-        default_factory=DatasetConfig.get_choice_class(DatasetRegistry.RLDS_OXE_QNA_V3.dataset_id)
+        default_factory=DatasetConfig.get_choice_class(DatasetRegistry.RLDS_OXE_QNA_MIX1.dataset_id)
     )
 
     # Pretraining Stage in < align (projector-only) | finetune (projector + LLM) | full-finetune (all) >
@@ -67,7 +67,7 @@ class PretrainConfig:
 
     # Pretrained Checkpoint to Load (for `finetune`)
     # if None =>> will match on (run_dir / `align`)
-    pretrained_checkpoint: Optional[Path] = Path("/home/ubuntu/prismatic_vlms/runs/prism-dinosiglip+7b_checkpoint/checkpoints/latest-checkpoint.pt")
+    pretrained_checkpoint: Optional[Path] = Path("")
 
     # Run Arguments
     run_id: Optional[str] = None                                    # Run ID for logging, Weights & Biases
@@ -83,7 +83,7 @@ class PretrainConfig:
     wandb_entity: Optional[str] = "stanford-voltron"                # Name of W&B entity (default: None)
 
     # Additional parameters
-    train_val_split_3qna: Optional[float] = 0.01                    # Training-validation split for conversations in RLDS Open-X datasets with 3 QnAs
+    train_val_split_3qna: Optional[float] = 0.7                     # Training-validation split for conversations in RLDS Open-X datasets with 3 QnAs
     train_val_split_multi_qna: Optional[float] = 0.9                # Training-validation split for conversations in RLDS Open-X datasets with more than 3 QnAs
     save_steps: int = 500                                           # Interval for checkpoint saving
     overwrite: bool = True                                          # Whether to overwrite checkpoints. If true, the checkpoint with the lower loss is retained.

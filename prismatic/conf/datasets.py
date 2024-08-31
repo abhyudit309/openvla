@@ -129,7 +129,7 @@ class RLDS_OpenX_QnA_Config(DatasetConfig):
 
 # RLDS dataset V2 -> Added <pose>..</pose> tags and modified system prompt
 @dataclass
-class RLDS_OpenX_QnA_Config_V2(DatasetConfig):
+class RLDS_OpenX_QnA_V2_Config(DatasetConfig):
     dataset_id: str = "rlds-oxe-qna-v2"
 
     # Same as finetune as of now. Might need to FIX later.
@@ -147,7 +147,7 @@ class RLDS_OpenX_QnA_Config_V2(DatasetConfig):
 # RLDS dataset V3 -> Normalized actions and poses, fixed BGR->RGB for stanford hydra and
 # utaustin mutex, and used same system prompt as V2
 @dataclass
-class RLDS_OpenX_QnA_Config_V3(DatasetConfig):
+class RLDS_OpenX_QnA_V3_Config(DatasetConfig):
     dataset_id: str = "rlds-oxe-qna-v3"
 
     # Same as finetune as of now. Might need to FIX later.
@@ -157,6 +157,24 @@ class RLDS_OpenX_QnA_Config_V3(DatasetConfig):
     )
     finetune_stage_components: Tuple[Path, Path] = (
         Path("rlds_oxe_qna/rlds_oxe_qna_data_v3.json"),
+        Path("rlds_oxe_qna/"),
+    )
+    dataset_root_dir: Path = Path("/home/ubuntu")
+
+
+# This dataset consists of examples from 2 Open-X datasets:'taco_play' and 'utaustin_mutex'.
+# Rest is the same as V3 above.
+@dataclass
+class RLDS_OpenX_QnA_Mix_1_Config(DatasetConfig):
+    dataset_id: str = "rlds-oxe-qna-franka-mix-1"
+
+    # Same as finetune as of now. Might need to FIX later.
+    align_stage_components: Tuple[Path, Path] = (
+        Path("rlds_oxe_qna/franka_mix_1.json"),
+        Path("rlds_oxe_qna/"),
+    )
+    finetune_stage_components: Tuple[Path, Path] = (
+        Path("rlds_oxe_qna/franka_mix_1.json"),
         Path("rlds_oxe_qna/"),
     )
     dataset_root_dir: Path = Path("/home/ubuntu")
@@ -177,8 +195,9 @@ class DatasetRegistry(Enum):
 
     # === RLDS Open-X Qna ===
     RLDS_OXE_QNA = RLDS_OpenX_QnA_Config
-    RLDS_OXE_QNA_V2 = RLDS_OpenX_QnA_Config_V2
-    RLDS_OXE_QNA_V3 = RLDS_OpenX_QnA_Config_V3
+    RLDS_OXE_QNA_V2 = RLDS_OpenX_QnA_V2_Config
+    RLDS_OXE_QNA_V3 = RLDS_OpenX_QnA_V3_Config
+    RLDS_OXE_QNA_MIX1 = RLDS_OpenX_QnA_Mix_1_Config
 
     @property
     def dataset_id(self) -> str:

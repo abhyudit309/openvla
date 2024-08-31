@@ -22,7 +22,7 @@ from torch.utils.data import Dataset
 from transformers import CodeGenTokenizerFast, LlamaTokenizerFast, PreTrainedTokenizerBase
 
 from prismatic.overwatch import initialize_overwatch
-from prismatic.models.backbones.llm.prompting import PromptBuilder
+from prismatic.models.backbones.llm.prompting import PromptBuilder, LLaMa3InstructPromptBuilder
 from prismatic.models.backbones.vision import ImageTransform
 
 # HuggingFace Default / LLaMa-2 IGNORE_INDEX (for labels)
@@ -197,6 +197,11 @@ class FinetuneDataset(Dataset[Dict[str, torch.Tensor]]):
             input_ids.extend(turn_input_ids)
             labels.extend(turn_labels)
 
+        # Remove the new-line at the end if used LLaMa3 Instruct PromptBuilder
+        if isinstance(prompt_builder, LLaMa3InstructPromptBuilder):
+            input_ids = input_ids[:-1]
+            labels = labels[:-1]
+        
         # Tensorize =>> Set the <BOS> token's label to IGNORE_INDEX (since we're inserting the image patches after)
         #   - IMPORTANT => IF WE'RE USING HF LLM.forward(... labels=labels), SHIFTING HAPPENS _INSIDE_ MODEL!
         input_ids, labels = torch.tensor(input_ids), torch.tensor(labels)
