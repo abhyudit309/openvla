@@ -454,7 +454,7 @@ class Prism_7B_DINOSigLIP(Exp_7B_One_Stage):
     image_resize_strategy: str = "resize-naive"
     llm_backbone_id: str = "llama2-7b-pure"
     arch_specifier: str = "no-align+fused-gelu-mlp"
-    finetune_epochs: int = 2
+    finetune_epochs: int = 5
 
 
 #   =>> Note :: Run with `--dataset.type "llava-lvis4v-lrv"`
@@ -514,13 +514,14 @@ class DINO_SigLIP_PHI3_LORA(LLaVa_v15_Reproduction_7B):
 
 
 # DinoSigLip + LLaMa-3.1-8B-Instruct + Lora
+# Train on 8 GPU instance
 @dataclass
 class DINO_SigLIP_LLaMa3_LORA(Prism_7B_DINOSigLIP):
     model_id: str = "dino-siglip-llama3.1-instruct-lora-model"
     llm_backbone_id: str = "llama-3.1-8B-instruct"
     finetune_epochs: int = 5
     finetune_global_batch_size: int = 16
-    finetune_per_device_batch_size: int = 4
+    finetune_per_device_batch_size: int = 2
 
 
 # === Define a Model Registry Enum for Reference & Validation ===

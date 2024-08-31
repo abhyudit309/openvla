@@ -53,7 +53,7 @@ class PretrainConfig:
 
     # ModelConfig (`prismatic/conf/models.py`); override with --model.type `ModelRegistry.<MODEL>.model_id`
     model: ModelConfig = field(
-        default_factory=ModelConfig.get_choice_class(ModelRegistry.DINOSIGLIP_LLAMA3_LORA.model_id)
+        default_factory=ModelConfig.get_choice_class(ModelRegistry.PRISM_DINOSIGLIP_7B.model_id)
     )
 
     # DatasetConfig (`prismatic/conf/datasets.py`); override with --dataset.type `DatasetRegistry.<DATASET>.dataset_id`
@@ -83,7 +83,7 @@ class PretrainConfig:
     wandb_entity: Optional[str] = "stanford-voltron"                # Name of W&B entity (default: None)
 
     # Additional parameters
-    train_val_split_3qna: Optional[float] = 0.7                     # Training-validation split for conversations in RLDS Open-X datasets with 3 QnAs
+    train_val_split_3qna: Optional[float] = 0.01                    # Training-validation split for conversations in RLDS Open-X datasets with 3 QnAs
     train_val_split_multi_qna: Optional[float] = 0.9                # Training-validation split for conversations in RLDS Open-X datasets with more than 3 QnAs
     save_steps: int = 500                                           # Interval for checkpoint saving
     overwrite: bool = True                                          # Whether to overwrite checkpoints. If true, the checkpoint with the lower loss is retained.

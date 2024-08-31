@@ -19,7 +19,10 @@ from typing import Dict, List, Tuple, Type, Optional
 import torch
 from PIL import Image
 from torch.utils.data import Dataset
-from transformers import CodeGenTokenizerFast, LlamaTokenizerFast, PreTrainedTokenizerBase
+from transformers import (CodeGenTokenizerFast, 
+                          LlamaTokenizerFast, 
+                          PreTrainedTokenizerBase, 
+                          PreTrainedTokenizerFast)
 
 from prismatic.overwatch import initialize_overwatch
 from prismatic.models.backbones.llm.prompting import PromptBuilder, LLaMa3InstructPromptBuilder
@@ -180,6 +183,10 @@ class FinetuneDataset(Dataset[Dict[str, torch.Tensor]]):
 
             # Phi-2 Tokenizer == CodeGenTokenizer (Fast) -- no special handling!
             elif isinstance(self.tokenizer, CodeGenTokenizerFast):
+                pass
+
+            # Llama-3 Instruct Tokenizer == PreTrainedTokenizerFast -- no special handling!
+            elif isinstance(self.tokenizer, PreTrainedTokenizerFast):
                 pass
 
             else:
