@@ -513,10 +513,21 @@ class DINO_SigLIP_PHI3_LORA(LLaVa_v15_Reproduction_7B):
     finetune_per_device_batch_size: int = 4
 
 
+# DinoSigLip + LLaMa-3.1-8B-Pure + Lora
+# Train on 8 GPU instance
+@dataclass
+class DINO_SigLIP_LLaMa3_Pure_LORA(Prism_7B_DINOSigLIP):
+    model_id: str = "dino-siglip-llama3.1-pure-lora-model"
+    llm_backbone_id: str = "llama-3.1-8B-pure"
+    finetune_epochs: int = 5
+    finetune_global_batch_size: int = 16
+    finetune_per_device_batch_size: int = 2
+
+
 # DinoSigLip + LLaMa-3.1-8B-Instruct + Lora
 # Train on 8 GPU instance
 @dataclass
-class DINO_SigLIP_LLaMa3_LORA(Prism_7B_DINOSigLIP):
+class DINO_SigLIP_LLaMa3_Instruct_LORA(Prism_7B_DINOSigLIP):
     model_id: str = "dino-siglip-llama3.1-instruct-lora-model"
     llm_backbone_id: str = "llama-3.1-8B-instruct"
     finetune_epochs: int = 5
@@ -604,8 +615,9 @@ class ModelRegistry(Enum):
     # === DinoSiglip + Phi3 LLM Backbone ===
     DINOSIGLIP_PHI3_LORA = DINO_SigLIP_PHI3_LORA
 
-    # === DinoSiglip + LLaMa-3.1-Instruct LLM Backbone ===
-    DINOSIGLIP_LLAMA3_LORA = DINO_SigLIP_LLaMa3_LORA
+    # === DinoSiglip + LLaMa-3.1 LLM Backbones ===
+    DINOSIGLIP_LLAMA3_PURE_LORA = DINO_SigLIP_LLaMa3_Pure_LORA
+    DINOSIGLIP_LLAMA3_INSTRUCT_LORA = DINO_SigLIP_LLaMa3_Instruct_LORA
 
     @property
     def model_id(self) -> str:

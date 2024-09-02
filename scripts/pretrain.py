@@ -53,7 +53,7 @@ class PretrainConfig:
 
     # ModelConfig (`prismatic/conf/models.py`); override with --model.type `ModelRegistry.<MODEL>.model_id`
     model: ModelConfig = field(
-        default_factory=ModelConfig.get_choice_class(ModelRegistry.DINOSIGLIP_LLAMA3_LORA.model_id)
+        default_factory=ModelConfig.get_choice_class(ModelRegistry.DINOSIGLIP_LLAMA3_PURE_LORA.model_id)
     )
 
     # DatasetConfig (`prismatic/conf/datasets.py`); override with --dataset.type `DatasetRegistry.<DATASET>.dataset_id`

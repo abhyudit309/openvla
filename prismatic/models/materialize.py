@@ -15,7 +15,7 @@ from prismatic.models.backbones.llm import (
     MistralLLMBackbone, 
     PhiLLMBackbone, 
     Phi3LLMBackbone,
-    LLaMa3InstructLLMBackbone)
+    LLaMa3LLMBackbone)
 
 from prismatic.models.backbones.vision import (
     CLIPViTBackbone,
@@ -81,8 +81,9 @@ LLM_BACKBONES = {
     #  === Phi3 Backbone ===
     "phi-3-base": {"cls": Phi3LLMBackbone, "kwargs": {}},
 
-    #  === LLaMa-3.1-Instruct Backbone ===
-    "llama-3.1-8B-instruct": {"cls": LLaMa3InstructLLMBackbone, "kwargs": {}},
+    #  === LLaMa-3.1 Backbones ===
+    "llama-3.1-8B-pure": {"cls": LLaMa3LLMBackbone, "kwargs": {}},
+    "llama-3.1-8B-instruct": {"cls": LLaMa3LLMBackbone, "kwargs": {}},
 }
 
 # fmt: on

@@ -1,5 +1,5 @@
 """
-llama_3_1_instruct.py
+llama_3_1.py
 
 Class definition for all LLMs derived from LlamaForCausalLM.
 """
@@ -12,12 +12,19 @@ from transformers import LlamaForCausalLM
 from transformers.models.llama.modeling_llama import LlamaDecoderLayer
 
 from prismatic.models.backbones.llm.base_llm import HFCausalLLMBackbone
-from prismatic.models.backbones.llm.prompting import PromptBuilder, LLaMa3InstructPromptBuilder
+from prismatic.models.backbones.llm.prompting import (
+    PromptBuilder,
+    LLaMa3PurePromptBuilder, 
+    LLaMa3InstructPromptBuilder
+)
 
 # Registry =>> Support LLaMa-3 Models (from HF Transformers)
 # fmt: off
 LLAMA3_MODELS = {
-    # === LLaMa-3.1 Instruct Models ===
+    # === LLaMa-3.1 Base and Instruct Models ===
+    "llama-3.1-8B-pure": {
+        "llm_family": "llama3", "llm_cls": LlamaForCausalLM, "hf_hub_path": "meta-llama/Meta-Llama-3.1-8B"
+    },
     "llama-3.1-8B-instruct": {
         "llm_family": "llama3", "llm_cls": LlamaForCausalLM, "hf_hub_path": "meta-llama/Meta-Llama-3.1-8B-Instruct"
     },
@@ -25,7 +32,7 @@ LLAMA3_MODELS = {
 # fmt: on
 
 
-class LLaMa3InstructLLMBackbone(HFCausalLLMBackbone):
+class LLaMa3LLMBackbone(HFCausalLLMBackbone):
     def __init__(
         self,
         llm_backbone_id: str,
@@ -54,6 +61,9 @@ class LLaMa3InstructLLMBackbone(HFCausalLLMBackbone):
 
     @property
     def prompt_builder_fn(self) -> Type[PromptBuilder]:
+        if self.identifier.startswith("llama-3.1") and self.identifier.endswith("-pure"):
+            return LLaMa3PurePromptBuilder
+        
         if self.identifier.startswith("llama-3.1") and self.identifier.endswith("-instruct"):
             return LLaMa3InstructPromptBuilder
 
