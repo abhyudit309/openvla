@@ -11,7 +11,9 @@ from typing import Any, Dict, List, Tuple
 
 from prismatic.overwatch import initialize_overwatch
 from prismatic.vla.datasets.rlds.oxe.configs import OXE_DATASET_CONFIGS, ActionEncoding
+from prismatic.vla.datasets.rlds.oxe.oxe_qna_configs import OXE_QNA_DATASET_CONFIGS
 from prismatic.vla.datasets.rlds.oxe.transforms import OXE_STANDARDIZATION_TRANSFORMS
+from prismatic.vla.datasets.rlds.oxe.oxe_qna_transforms import OXE_QNA_STANDARDIZATION_TRANSFORMS
 from prismatic.vla.datasets.rlds.utils.data_utils import NormalizationType
 
 # Initialize Overwatch =>> Wraps `logging.Logger`
@@ -28,7 +30,11 @@ def make_oxe_dataset_kwargs(
     action_proprio_normalization_type: NormalizationType = NormalizationType.NORMAL,
 ) -> Dict[str, Any]:
     """Generates config (kwargs) for given dataset from Open-X Embodiment."""
-    dataset_kwargs = deepcopy(OXE_DATASET_CONFIGS[dataset_name])
+    if "_qna" in dataset_name:
+        dataset_kwargs = deepcopy(OXE_QNA_DATASET_CONFIGS[dataset_name])
+    else:
+        dataset_kwargs = deepcopy(OXE_DATASET_CONFIGS[dataset_name])
+
     if dataset_kwargs["action_encoding"] not in [ActionEncoding.EEF_POS, ActionEncoding.EEF_R6]:
         raise ValueError(f"Cannot load `{dataset_name}`; only EEF_POS & EEF_R6 actions supported!")
 
@@ -67,7 +73,10 @@ def make_oxe_dataset_kwargs(
         dataset_kwargs["language_key"] = "language_instruction"
 
     # Specify Standardization Transform
-    dataset_kwargs["standardize_fn"] = OXE_STANDARDIZATION_TRANSFORMS[dataset_name]
+    if "_qna" in dataset_name:
+        dataset_kwargs["standardize_fn"] = OXE_QNA_STANDARDIZATION_TRANSFORMS[dataset_name]
+    else:
+        dataset_kwargs["standardize_fn"] = OXE_STANDARDIZATION_TRANSFORMS[dataset_name]
 
     # Add any aux arguments
     if "aux_kwargs" in dataset_kwargs:

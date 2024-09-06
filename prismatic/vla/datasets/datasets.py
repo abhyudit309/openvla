@@ -7,21 +7,34 @@ format to OpenVLA, IterableDataset shim.
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Tuple, Type
+from typing import Any, Dict, Tuple, Type, Union
 
 import numpy as np
 import torch
 from PIL import Image
 from torch.utils.data import Dataset, IterableDataset
-from transformers import PreTrainedTokenizerBase
+from transformers import (
+    PreTrainedTokenizerBase,
+    CodeGenTokenizerFast, 
+    LlamaTokenizerFast, 
+    PreTrainedTokenizerFast
+)
 
-from prismatic.models.backbones.llm.prompting import PromptBuilder
 from prismatic.models.backbones.vision import ImageTransform
 from prismatic.util.data_utils import tree_map
 from prismatic.vla.action_tokenizer import ActionTokenizer
 from prismatic.vla.datasets.rlds import make_interleaved_dataset, make_single_dataset
-from prismatic.vla.datasets.rlds.oxe import OXE_NAMED_MIXTURES, get_oxe_dataset_kwargs_and_weights
 from prismatic.vla.datasets.rlds.utils.data_utils import NormalizationType
+from prismatic.vla.datasets.rlds.oxe import (
+    OXE_NAMED_MIXTURES, 
+    OXE_QNA_NAMED_MIXTURES, 
+    get_oxe_dataset_kwargs_and_weights
+)
+from prismatic.models.backbones.llm.prompting import (
+    PromptBuilder, 
+    LLaMa3PurePromptBuilder,
+    LLaMa3InstructPromptBuilder
+)
 
 # HuggingFace Default / LLaMa-2 IGNORE_INDEX (for labels)
 IGNORE_INDEX = -100
@@ -67,6 +80,84 @@ class RLDSBatchTransform:
         return dict(pixel_values=pixel_values, input_ids=input_ids, labels=labels, dataset_name=dataset_name)
 
 
+@dataclass
+class RLDSQnABatchTransform:
+    tokenizer: PreTrainedTokenizerBase
+    image_transform: ImageTransform
+    prompt_builder_fn: Type[PromptBuilder]
+
+    def __call__(self, rlds_batch: Dict[str, Any]) -> Dict[str, Any]:
+        """Converts a RLDS-QnA batch to the format expected by the OpenVLA collator/models."""
+        dataset_name, action = rlds_batch["dataset_name"], rlds_batch["action"][0]
+        img = Image.fromarray(rlds_batch["observation"]["image_primary"][0])
+
+        # Construct conversation grounded in the image
+        questions = rlds_batch["question_answer_pairs"]["question"]
+        answers = rlds_batch["question_answer_pairs"]["answer"]
+        assert len(questions) == len(answers)
+
+        conversation = []
+        for question, answer in zip(questions, answers):
+            conversation.append({"from": "human", "value": question.decode()})
+            conversation.append({"from": "gpt", "value": answer.decode()})
+
+        # Create Prompt Builder --> add each message sequentially
+        prompt_builder, input_ids, labels = self.prompt_builder_fn(model_family="openvla"), [], []
+        for turn_idx, turn in enumerate(conversation):
+            # Get "effective" string added to prompt --> handle whitespace for tokenizer type!
+            msg = prompt_builder.add_turn(turn["from"], turn["value"])
+
+            # Llama Tokenizer (Fast) adds extra character if a string ends in whitespace --> strip if non-empty!
+            if isinstance(self.tokenizer, LlamaTokenizerFast):
+                msg = msg.rstrip()
+
+            # Phi-2 Tokenizer == CodeGenTokenizer (Fast) -- no special handling!
+            elif isinstance(self.tokenizer, CodeGenTokenizerFast):
+                pass
+
+            # Llama-3 Tokenizer == PreTrainedTokenizerFast -- no special handling!
+            elif isinstance(self.tokenizer, PreTrainedTokenizerFast):
+                pass
+
+            else:
+                raise ValueError(f"Tokenizer of type `{type(self.tokenizer)}` is not explicitly handled!")
+
+            # Tokenize Input IDs
+            turn_input_ids = self.tokenizer(msg, add_special_tokens=turn_idx == 0).input_ids
+
+            # [CRITICAL] We do not want to take the loss for the "USER: <msg>" prompts =>> just the responses!
+            turn_labels = (
+                [IGNORE_INDEX for _ in range(len(turn_input_ids))] if (turn_idx % 2) == 0 else list(turn_input_ids)
+            )
+
+            # Add to Trackers
+            input_ids.extend(turn_input_ids)
+            labels.extend(turn_labels)
+
+        # Remove the new-line at the end if used LLaMa3 PromptBuilder
+        if isinstance(prompt_builder, Union[LLaMa3PurePromptBuilder, LLaMa3InstructPromptBuilder]):
+            input_ids = input_ids[:-1]
+            labels = labels[:-1]
+
+        # Tensorize
+        input_ids, labels = torch.tensor(input_ids), torch.tensor(labels)
+
+        # Set the <BOS> token's label to IGNORE_INDEX (since we're inserting the image patches right after)
+        labels[0] = IGNORE_INDEX
+
+        # Handle Truncation (if necessary)
+        input_ids, labels = input_ids[: self.tokenizer.model_max_length], labels[: self.tokenizer.model_max_length]
+
+        # Tensorize =>> Run Image Transform to get `pixel_values` =>> Return
+        pixel_values = self.image_transform(img)
+
+        return dict(pixel_values=pixel_values, 
+                    input_ids=input_ids, 
+                    labels=labels,
+                    action=action, 
+                    dataset_name=dataset_name)
+
+
 class RLDSDataset(IterableDataset):
     def __init__(
         self,
@@ -84,6 +175,93 @@ class RLDSDataset(IterableDataset):
         # Configure RLDS Dataset(s)
         if self.data_mix in OXE_NAMED_MIXTURES:
             mixture_spec = OXE_NAMED_MIXTURES[self.data_mix]
+        else:
+            # Assume that passed "mixture" name is actually a single dataset -- create single-dataset "mix"
+            mixture_spec = [(self.data_mix, 1.0)]
+
+        # fmt: off
+        per_dataset_kwargs, weights = get_oxe_dataset_kwargs_and_weights(
+            self.data_root_dir,
+            mixture_spec,
+            load_camera_views=("primary",),
+            load_depth=False,
+            load_proprio=False,
+            load_language=True,
+            action_proprio_normalization_type=NormalizationType.BOUNDS_Q99,
+        )
+        rlds_config = dict(
+            traj_transform_kwargs=dict(
+                window_size=1,                                      # If we wanted to feed / predict more than one step
+                future_action_window_size=0,                        # For action chunking
+                skip_unlabeled=True,                                # Skip trajectories without language labels
+                goal_relabeling_strategy="uniform",                 # Goals are currently unused
+            ),
+            frame_transform_kwargs=dict(
+                resize_size=resize_resolution,
+                num_parallel_calls=16,                          # For CPU-intensive ops (decoding, resizing, etc.)
+            ),
+            dataset_kwargs_list=per_dataset_kwargs,
+            shuffle_buffer_size=shuffle_buffer_size,
+            sample_weights=weights,
+            balance_weights=True,
+            traj_transform_threads=len(mixture_spec),
+            traj_read_threads=len(mixture_spec),
+            train=train,
+        )
+
+        # If applicable, enable image augmentations
+        if image_aug:
+            rlds_config["frame_transform_kwargs"].update({"image_augment_kwargs" : dict(
+                random_resized_crop=dict(scale=[0.9, 0.9], ratio=[1.0, 1.0]),
+                random_brightness=[0.2],
+                random_contrast=[0.8, 1.2],
+                random_saturation=[0.8, 1.2],
+                random_hue=[0.05],
+                augment_order=[
+                    "random_resized_crop",
+                    "random_brightness",
+                    "random_contrast",
+                    "random_saturation",
+                    "random_hue",
+                ],
+            )}),
+        # fmt: on
+
+        # Initialize RLDS Dataset
+        self.dataset, self.dataset_length, self.dataset_statistics = self.make_dataset(rlds_config)
+
+    def make_dataset(self, rlds_config):
+        return make_interleaved_dataset(**rlds_config)
+
+    def __iter__(self) -> Dict[str, Any]:
+        for rlds_batch in self.dataset.as_numpy_iterator():
+            yield self.batch_transform(rlds_batch)
+
+    def __len__(self) -> int:
+        return self.dataset_length
+
+    # === Explicitly Unused ===
+    def __getitem__(self, idx: int) -> None:
+        raise NotImplementedError("IterableDataset does not implement map-style __getitem__; see __iter__ instead!")
+
+
+class RLDSQnADataset(IterableDataset):
+    def __init__(
+        self,
+        data_root_dir: Path,
+        data_mix: str,
+        batch_transform: RLDSQnABatchTransform,
+        resize_resolution: Tuple[int, int],
+        shuffle_buffer_size: int = 256_000,
+        train: bool = True,
+        image_aug: bool = False,
+    ) -> None:
+        """Lightweight wrapper around RLDS TFDS Pipeline for use with PyTorch/OpenVLA Data Loaders."""
+        self.data_root_dir, self.data_mix, self.batch_transform = data_root_dir, data_mix, batch_transform
+
+        # Configure RLDS Dataset(s)
+        if self.data_mix in OXE_QNA_NAMED_MIXTURES:
+            mixture_spec = OXE_QNA_NAMED_MIXTURES[self.data_mix]
         else:
             # Assume that passed "mixture" name is actually a single dataset -- create single-dataset "mix"
             mixture_spec = [(self.data_mix, 1.0)]
