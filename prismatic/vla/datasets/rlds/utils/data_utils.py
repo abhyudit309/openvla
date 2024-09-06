@@ -7,6 +7,7 @@ Additional RLDS-specific data utilities.
 import hashlib
 import json
 import os
+import re
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -101,6 +102,158 @@ def normalize_action_and_proprio(traj: Dict, metadata: Dict, normalization_type:
         return traj
 
     raise ValueError(f"Unknown Normalization Type {normalization_type}")
+
+
+def get_7d_action_from_answer(answer: str) -> np.ndarray:
+    """
+    This helper extracts the 7d action as a numpy array between the 
+    <action>..</action> tags.
+    """
+    action_values_str = re.search(r"<action>(.*?)</action>", answer).group(1)
+    action_values = list(map(float, action_values_str.split()))
+    action_array = np.array(action_values)
+
+    assert len(action_array) == 7, "Action should be 7-dimensional!"
+    return action_array
+
+
+def get_6d_pose_from_answer(answer: str) -> np.ndarray:
+    """
+    This helper extracts the 6d pose as a numpy array.
+    """
+    pose_values_str = answer[38:-1].strip()
+    pose_values = list(map(float, pose_values_str.split()))
+    pose_array = np.array(pose_values)
+
+    assert len(pose_array) == 6, "Pose should be 6-dimensional!"
+    return pose_array
+
+
+def format_value(value: float) -> str:
+    """
+    This helper formats a float into a string without unnecessary trailing zeros.
+    """
+    formatted = f"{value:.8f}".rstrip('0').rstrip('.')
+    if '.' not in formatted:
+        formatted += '.0'
+    return formatted
+
+
+def normalize_action_or_pose_answer(answer: str, 
+                                    metadata: Dict, 
+                                    normalization_type: NormalizationType,
+                                    dim: int) -> str:
+    """
+    This helper:
+    -> takes in an answer with action values (answer to 'R1'), normalizes 
+       these actions, and replaces them in the answer.
+    OR
+    -> takes in an answer with pose values (answer to 'R2'), normalizes
+       these poses, and replaces them in the answer with added <pose> tags.
+    """
+    assert dim in {6, 7}, "Can only normalize 6D poses or 7D actions!"
+
+    if dim == 6:
+        get_value_from_answer = get_6d_pose_from_answer
+    else:
+        get_value_from_answer = get_7d_action_from_answer
+
+    value = get_value_from_answer(answer)
+
+    mask = metadata["action"].get("mask", np.ones_like(metadata["action"]["mean"], dtype=bool))[:dim]
+    if normalization_type == NormalizationType.NORMAL:
+        normalized_value = np.where(
+            mask,
+            (value - metadata["action"]["mean"][:dim]) / (metadata["action"]["std"][:dim] + 1e-8),
+            value
+        )
+
+    elif normalization_type in [NormalizationType.BOUNDS, NormalizationType.BOUNDS_Q99]:
+        if normalization_type == NormalizationType.BOUNDS:
+            low = metadata["action"]["min"][:dim]
+            high = metadata["action"]["max"][:dim]
+        elif normalization_type == NormalizationType.BOUNDS_Q99:
+            low = metadata["action"]["q01"][:dim]
+            high = metadata["action"]["q99"][:dim]
+
+        normalized_value = np.where(
+            mask,
+            np.clip(2 * (value - low) / (high - low + 1e-8) - 1, -1.0, 1.0),
+            value
+        )
+
+        zeros_mask = metadata["action"]["min"] == metadata["action"]["max"]
+        normalized_value = np.where(zeros_mask[:dim], 0.0, normalized_value)
+
+    else:
+        raise ValueError(f"Unknown Normalization Type {normalization_type}")
+    
+    normalized_value_str = ' '.join(format_value(value) for value in normalized_value)
+    if dim == 6:
+        normalized_answer = f"{answer[:38]}<pose>{normalized_value_str}</pose>."
+    else:
+        normalized_answer = re.sub(r"<action>.*?</action>", f"<action>{normalized_value_str}</action>", answer)
+    
+    return normalized_answer
+
+
+def normalize_answers(answers: tf.RaggedTensor, 
+                      metadata: Dict, 
+                      normalization_type: NormalizationType
+                      ) -> tf.RaggedTensor:
+    """
+    Normalizes actions and poses in the answers using the given metadata.
+    """
+    def normalize_answer(answer: tf.Tensor) -> str:
+        answer = answer.numpy().decode()
+        if answer.startswith("The next action for the end-effector"):
+            normalized_answer = normalize_action_or_pose_answer(
+                answer=answer,
+                metadata=metadata,
+                normalization_type=normalization_type,
+                dim=7
+            )
+        elif answer.startswith("The next pose of the end-effector"):
+            normalized_answer = normalize_action_or_pose_answer(
+                answer=answer,
+                metadata=metadata,
+                normalization_type=normalization_type,
+                dim=6
+            )
+        else:
+            # We leave the other answers as is
+            normalized_answer = answer
+
+        return normalized_answer
+    
+    # Apply normalization to each element in the RaggedTensor
+    normalized_answers = tf.map_fn(
+        lambda frame: tf.map_fn(
+            lambda answer: tf.py_function(func=normalize_answer, inp=[answer], Tout=tf.string),
+            frame,
+            dtype=tf.string
+        ),
+        answers,
+        dtype=tf.RaggedTensorSpec(shape=[None], dtype=tf.string)
+    )
+
+    return normalized_answers
+
+
+def normalize_question_answer_pairs(traj: Dict, metadata: Dict, normalization_type: NormalizationType) -> Dict:
+    """
+    Normalizes actions and poses in the answers of a trajectory using the given metadata.
+    """
+    def process_answers(answers: tf.RaggedTensor) -> tf.RaggedTensor:
+        return normalize_answers(answers, metadata, normalization_type)
+    
+    traj = dl.transforms.selective_tree_map(
+        traj,
+        match="question_answer_pairs/answer",
+        map_fn=process_answers
+    )
+
+    return traj
 
 
 def binarize_gripper_actions(actions: tf.Tensor) -> tf.Tensor:
