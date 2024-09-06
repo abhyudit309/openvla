@@ -14,7 +14,7 @@ import json
 import random
 import os
 from pathlib import Path
-from typing import Dict, List, Tuple, Type, Optional
+from typing import Dict, List, Tuple, Type, Optional, Union
 
 import torch
 from PIL import Image
@@ -25,8 +25,12 @@ from transformers import (CodeGenTokenizerFast,
                           PreTrainedTokenizerFast)
 
 from prismatic.overwatch import initialize_overwatch
-from prismatic.models.backbones.llm.prompting import PromptBuilder, LLaMa3InstructPromptBuilder
 from prismatic.models.backbones.vision import ImageTransform
+from prismatic.models.backbones.llm.prompting import (
+    PromptBuilder,
+    LLaMa3PurePromptBuilder,
+    LLaMa3InstructPromptBuilder
+)
 
 # HuggingFace Default / LLaMa-2 IGNORE_INDEX (for labels)
 IGNORE_INDEX = -100
@@ -185,7 +189,7 @@ class FinetuneDataset(Dataset[Dict[str, torch.Tensor]]):
             elif isinstance(self.tokenizer, CodeGenTokenizerFast):
                 pass
 
-            # Llama-3 Instruct Tokenizer == PreTrainedTokenizerFast -- no special handling!
+            # Llama-3 Tokenizer == PreTrainedTokenizerFast -- no special handling!
             elif isinstance(self.tokenizer, PreTrainedTokenizerFast):
                 pass
 
@@ -204,8 +208,8 @@ class FinetuneDataset(Dataset[Dict[str, torch.Tensor]]):
             input_ids.extend(turn_input_ids)
             labels.extend(turn_labels)
 
-        # Remove the new-line at the end if used LLaMa3 Instruct PromptBuilder
-        if isinstance(prompt_builder, LLaMa3InstructPromptBuilder):
+        # Remove the new-line at the end if used LLaMa3 PromptBuilder
+        if isinstance(prompt_builder, Union[LLaMa3PurePromptBuilder, LLaMa3InstructPromptBuilder]):
             input_ids = input_ids[:-1]
             labels = labels[:-1]
         
