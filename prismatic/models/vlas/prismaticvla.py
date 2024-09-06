@@ -4,16 +4,17 @@ prismaticvla.py
 PyTorch Module defining PrismaticVLA as a lightweight wrapper around a PrismaticVLM.
 """
 
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional
 
 import numpy as np
 import torch
 from PIL import Image
 from transformers import LlamaTokenizerFast
 
+from prismatic.models.backbones.llm import LLMBackbone
+from prismatic.models.backbones.vision import VisionBackbone
 from prismatic.models.vlms.prismatic import PrismaticVLM
 from prismatic.overwatch import initialize_overwatch
-from prismatic.vla.action_head import LinearActionHead, MLPActionHead
 
 # Initialize Overwatch =>> Wraps `logging.Logger`
 overwatch = initialize_overwatch(__name__)
@@ -22,14 +23,26 @@ overwatch = initialize_overwatch(__name__)
 class PrismaticVLA(PrismaticVLM):
     def __init__(
         self,
-        *args,
+        model_id: str,
+        vision_backbone: VisionBackbone,
+        llm_backbone: LLMBackbone,
         norm_stats: Dict[str, Dict[str, Dict[str, Dict[str, List[float]]]]],
-        action_head: Union[LinearActionHead, MLPActionHead],
-        **kwargs,
+        enable_mixed_precision_training: bool = True,
+        arch_specifier: str = "gelu-mlp",
+        use_action_head: bool = True,
+        action_head_specifier: Optional[str] = "gelu",
     ) -> None:
-        super().__init__(*args, **kwargs)
+        super().__init__(
+            model_id=model_id,
+            vision_backbone=vision_backbone,
+            llm_backbone=llm_backbone,
+            enable_mixed_precision_training=enable_mixed_precision_training,
+            arch_specifier=arch_specifier,
+            use_action_head=use_action_head,
+            action_head_specifier=action_head_specifier
+        )
+        
         self.norm_stats = norm_stats
-        self.action_head = action_head
 
     @torch.inference_mode()
     def predict_action(
@@ -76,17 +89,12 @@ class PrismaticVLA(PrismaticVLM):
         autocast_dtype = self.llm_backbone.half_precision_dtype
         with torch.autocast("cuda", dtype=autocast_dtype, enabled=self.enable_mixed_precision_training):
             # fmt: off
-            generated_ids = super(PrismaticVLM, self)(
+            normalized_actions = super(PrismaticVLM, self)(
                 input_ids=input_ids,
                 pixel_values=pixel_values,
-                output_hidden_states=True,
                 **kwargs
             )
             # fmt: on
-
-        # Extract output from the last layer of the LLM backbone and map to actions
-        llm_last_layer_output = generated_ids.hidden_states[-1]
-        normalized_actions = self.action_head(llm_last_layer_output)
 
         # Un-normalize Actions
         action_norm_stats = self.get_action_stats(unnorm_key)

@@ -26,6 +26,7 @@ from prismatic.models.backbones.vision import VisionBackbone
 from prismatic.models.vlms.base_vlm import VLM
 from prismatic.overwatch import initialize_overwatch
 from prismatic.util.nn_utils import FusedMLPProjector, LinearProjector, MLPProjector
+from prismatic.vla.action_head import LinearActionHead, MLPActionHead
 
 # Initialize Overwatch =>> Wraps `logging.Logger`
 overwatch = initialize_overwatch(__name__)
@@ -43,6 +44,8 @@ class PrismaticVLM(VLM):
         llm_backbone: LLMBackbone,
         enable_mixed_precision_training: bool = True,
         arch_specifier: str = "gelu-mlp",
+        use_action_head: bool = False,
+        action_head_specifier: Optional[str] = None,
         **kwargs,
     ) -> None:
         super().__init__(
@@ -73,6 +76,20 @@ class PrismaticVLM(VLM):
         # Set Module Keys =>> used in Checkpoint Saving / Model Loading
         self.all_module_keys = ["vision_backbone", "llm_backbone", "projector"]
         self.trainable_module_keys = []
+
+        self.use_action_head = use_action_head
+        self.action_head_specifier = action_head_specifier
+        if use_action_head:
+            # Initialize Action Head based on 'action_head_specifier'
+            assert action_head_specifier is not None, "Action head should be specified if using it!"
+            if action_head_specifier == 'linear':
+                self.action_head = LinearActionHead(llm_backbone.embed_dim, 7)
+            elif action_head_specifier in ["gelu", "relu"]:
+                self.action_head = MLPActionHead(llm_backbone.embed_dim, 7, mlp_type=action_head_specifier)
+            else:
+                raise ValueError(f"PrismaticVLM with `{action_head_specifier = }` is not supported!")
+            
+            self.all_module_keys.append("action_head")
 
         # === Generation Utilities ===
         #   => For computing likelihoods --> get tokens corresponding to "True", "False" and "Yes", "No"
@@ -296,6 +313,12 @@ class PrismaticVLM(VLM):
         else:
             raise ValueError(f"Stage `{stage}` is not supported for LLaVa! Try < align | finetune >")
 
+        if self.use_action_head:
+            # We always train the action head
+            self.action_head.requires_grad_(True)
+            self.trainable_module_keys.append("action_head")
+            overwatch.info(f"[TRAINABLE]                 🔥   =>> Action Head `{self.action_head_specifier}`", ctx_level=1)
+
         overwatch.debug("##################################################")
         overwatch.debug("#####      Trainable Network Parameters:     #####")
         overwatch.debug("##################################################")
@@ -356,6 +379,23 @@ class PrismaticVLM(VLM):
             module_classes={LinearProjector, MLPProjector, FusedMLPProjector},
         )
 
+        if self.use_action_head:
+            # Module wrapping policy around `self.action_head`
+            action_head_fsdp_wrapping_policy = partial(
+                _module_wrap_policy,
+                module_classes={LinearActionHead, MLPActionHead},
+            )
+
+            return partial(
+                _or_policy,
+                policies=[
+                    vision_fsdp_wrapping_policy,
+                    llm_fsdp_wrapping_policy,
+                    prismatic_fsdp_wrapping_policy,
+                    action_head_fsdp_wrapping_policy
+                ],
+            )
+
         # Return union (_or_) over constituent policies
         #   => Note: there is *not* a fall-through policy; any module that isn't covered by the above constituents will
         #            automatically be folded into the root VLM FSDP instance.
@@ -391,7 +431,7 @@ class PrismaticVLM(VLM):
         # Handle Inference (leverage cache, short-circuit on just LLM forward)
         if input_ids.shape[1] == 1 and past_key_values is not None:
             # We're leveraging the cache, so just redirect to `self.llm_backbone` with `input_ids` and `past_key_values`
-            output = self.llm_backbone(
+            output: CausalLMOutputWithPast = self.llm_backbone(
                 input_ids=input_ids,
                 attention_mask=None,
                 position_ids=None,
@@ -400,10 +440,16 @@ class PrismaticVLM(VLM):
                 labels=None,
                 use_cache=use_cache,
                 output_attentions=output_attentions,
-                output_hidden_states=output_hidden_states,
+                output_hidden_states=True if self.use_action_head else None,
                 return_dict=return_dict,
             )
-            return output
+
+            if self.use_action_head:
+                llm_last_layer_output = output.hidden_states[-1]
+                normalized_actions = self.action_head(llm_last_layer_output)
+                return normalized_actions
+            else:
+                return output
 
         elif input_ids.shape[1] == 1 or pixel_values is None:
             raise RuntimeError("Invalid `forward()` call!")
@@ -414,7 +460,7 @@ class PrismaticVLM(VLM):
 
         # Handle Multimodal Indices is Empty (len == 0) --> simple unimodal forward
         elif len(multimodal_indices) == 0:
-            return self.llm_backbone(
+            output: CausalLMOutputWithPast = self.llm_backbone(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 position_ids=None,
@@ -423,9 +469,16 @@ class PrismaticVLM(VLM):
                 labels=labels,
                 use_cache=use_cache,
                 output_attentions=output_attentions,
-                output_hidden_states=output_hidden_states,
+                output_hidden_states=True if self.use_action_head else None,
                 return_dict=return_dict,
             )
+
+            if self.use_action_head:
+                llm_last_layer_output = output.hidden_states[-1]
+                normalized_actions = self.action_head(llm_last_layer_output)
+                return normalized_actions
+            else:
+                return output
 
         # Run Visual Feature Extraction
         with torch.set_grad_enabled(self.vision_backbone_requires_grad):
@@ -530,7 +583,7 @@ class PrismaticVLM(VLM):
             fused_labels = torch.vstack([multimodal_labels, unimodal_labels])
 
         # Run LLM Forward --> returns CausalLMOutputWithPast!
-        return self.llm_backbone(
+        output: CausalLMOutputWithPast = self.llm_backbone(
             input_ids=None,
             attention_mask=fused_attention_mask,
             position_ids=None,
@@ -539,9 +592,16 @@ class PrismaticVLM(VLM):
             labels=fused_labels,
             use_cache=use_cache,
             output_attentions=output_attentions,
-            output_hidden_states=output_hidden_states,
+            output_hidden_states=True if self.use_action_head else None,
             return_dict=return_dict,
         )
+
+        if self.use_action_head:
+            llm_last_layer_output = output.hidden_states[-1]
+            normalized_actions = self.action_head(llm_last_layer_output)
+            return normalized_actions
+        else:
+            return output
 
     # === GenerationMixin Methods ===
     #   => Note: The following methods override the functionality of `transformers.GenerationMixin`; these expect the
