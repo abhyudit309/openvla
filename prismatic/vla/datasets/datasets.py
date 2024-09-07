@@ -141,6 +141,7 @@ class RLDSQnABatchTransform:
 
         # Tensorize
         input_ids, labels = torch.tensor(input_ids), torch.tensor(labels)
+        action = torch.tensor(action, dtype=torch.bfloat16)
 
         # Set the <BOS> token's label to IGNORE_INDEX (since we're inserting the image patches right after)
         labels[0] = IGNORE_INDEX
