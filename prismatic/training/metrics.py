@@ -470,8 +470,7 @@ class PrismaticVLAMetrics:
         for ds, tracker in self.dataset_trackers.items():
             dataset_metrics.update(
                 {
-                    f"{ds}/Total Loss": torch.stack(list(tracker.state["total_loss"])).mean().item(),
-                    f"{ds}/LM Loss": torch.stack(list(tracker.state["lm_loss"])).mean().item(),
+                    f"{ds}/Action L1 Loss": torch.stack(list(tracker.state["action_l1_loss"])).mean().item(),
                     f"{ds}/Action L2 Loss": torch.stack(list(tracker.state["action_l2_loss"])).mean().item(),
                 }
             )
