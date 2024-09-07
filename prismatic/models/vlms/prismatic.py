@@ -45,7 +45,7 @@ class PrismaticVLM(VLM):
         enable_mixed_precision_training: bool = True,
         arch_specifier: str = "gelu-mlp",
         use_action_head: bool = False,
-        action_head_specifier: Optional[str] = None,
+        action_head_configs: Optional[Dict] = None,
         **kwargs,
     ) -> None:
         super().__init__(
@@ -78,14 +78,31 @@ class PrismaticVLM(VLM):
         self.trainable_module_keys = []
 
         self.use_action_head = use_action_head
-        self.action_head_specifier = action_head_specifier
         if use_action_head:
-            # Initialize Action Head based on 'action_head_specifier'
-            assert action_head_specifier is not None, "Action head should be specified if using it!"
+            self.action_head_configs = action_head_configs
+            assert action_head_configs, "Should specify config for action head is using it!"
+            action_head_specifier = action_head_configs["action_head_specifier"]
+            use_map = action_head_configs["use_map"]
+            num_map_heads = action_head_configs["num_map_heads"]
+
+            # Initialize Action Head
             if action_head_specifier == 'linear':
-                self.action_head = LinearActionHead(llm_backbone.embed_dim, 7)
+                self.action_head = LinearActionHead(
+                    llm_dim=llm_backbone.embed_dim, 
+                    action_dim=7, 
+                    use_map=use_map, 
+                    num_map_heads=num_map_heads
+                )
+                
             elif action_head_specifier in ["gelu", "relu"]:
-                self.action_head = MLPActionHead(llm_backbone.embed_dim, 7, mlp_type=action_head_specifier)
+                self.action_head = MLPActionHead(
+                    llm_dim=llm_backbone.embed_dim, 
+                    action_dim=7,
+                    use_map=use_map,
+                    num_map_heads=num_map_heads, 
+                    mlp_type=action_head_specifier
+                )
+            
             else:
                 raise ValueError(f"PrismaticVLM with `{action_head_specifier = }` is not supported!")
             
@@ -317,7 +334,8 @@ class PrismaticVLM(VLM):
             # We always train the action head
             self.action_head.requires_grad_(True)
             self.trainable_module_keys.append("action_head")
-            overwatch.info(f"[TRAINABLE]                 🔥   =>> Action Head `{self.action_head_specifier}`", ctx_level=1)
+            action_head_specifier = self.action_head_configs["action_head_specifier"]
+            overwatch.info(f"[TRAINABLE] 🔥 =>> Action Head `{action_head_specifier}`", ctx_level=1)
 
         overwatch.debug("##################################################")
         overwatch.debug("#####      Trainable Network Parameters:     #####")
@@ -446,8 +464,8 @@ class PrismaticVLM(VLM):
 
             if self.use_action_head:
                 llm_last_layer_output = output.hidden_states[-1]
-                normalized_actions = self.action_head(llm_last_layer_output)
-                return normalized_actions
+                actions = self.action_head(llm_last_layer_output)
+                return output, actions
             else:
                 return output
 
@@ -475,8 +493,8 @@ class PrismaticVLM(VLM):
 
             if self.use_action_head:
                 llm_last_layer_output = output.hidden_states[-1]
-                normalized_actions = self.action_head(llm_last_layer_output)
-                return normalized_actions
+                actions = self.action_head(llm_last_layer_output)
+                return output, actions
             else:
                 return output
 
@@ -598,8 +616,8 @@ class PrismaticVLM(VLM):
 
         if self.use_action_head:
             llm_last_layer_output = output.hidden_states[-1]
-            normalized_actions = self.action_head(llm_last_layer_output)
-            return normalized_actions
+            actions = self.action_head(llm_last_layer_output)
+            return output, actions
         else:
             return output
 
