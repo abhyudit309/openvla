@@ -685,7 +685,7 @@ class TrainingStrategy(ABC):
                                 action_l2_loss_ds = torch.nn.functional.mse_loss(pred_actions[ds_mask], gt_actions[ds_mask])
 
                                 metrics.commit_for_dataset(
-                                    dataset_name=ds.decode(), 
+                                    dataset_name=ds,
                                     action_l1_loss=action_l1_loss_ds, 
                                     action_l2_loss=action_l2_loss_ds,
                                 )

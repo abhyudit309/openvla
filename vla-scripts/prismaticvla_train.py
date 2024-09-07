@@ -23,12 +23,12 @@ import torch.distributed as dist
 import yaml
 from peft import LoraConfig
 
-from prismatic.conf import ModelConfig, ModelRegistry
+from prismatic.conf import DatasetConfig, DatasetRegistry, ModelConfig, ModelRegistry
 from prismatic.models import get_llm_backbone_and_tokenizer, get_vision_backbone_and_transform, get_vlm
 from prismatic.overwatch import initialize_overwatch
 from prismatic.training import PrismaticVLAMetrics, get_train_strategy
 from prismatic.util import set_global_seed
-from prismatic.vla import get_prismatic_vla_dataset_and_collator
+from prismatic.vla import get_prismatic_vla_dataset_and_collator, get_prismatic_vla_json_dataset_and_collator
 from prismatic.vla.datasets.rlds.utils.data_utils import save_dataset_statistics
 
 # Sane Defaults
@@ -48,9 +48,21 @@ class TrainConfig:
         default_factory=ModelConfig.get_choice_class(ModelRegistry.PRISM_DINOSIGLIP_7B.model_id)
     )
 
-    # Directory Paths
-    data_root_dir: Path = Path("/home/ubuntu/tensorflow_datasets")  # Path to Open-X dataset directory
-    data_mix: str = "taco+mutex"                                    # Name of dataset mixture
+    # DatasetConfig (`prismatic/conf/datasets.py`); override with --dataset.type `DatasetRegistry.<DATASET>.dataset_id`
+    # Specify this, if you want to train on a dataset in JSON format, with images in an associated folder
+    json_dataset: Optional[DatasetConfig] = field(
+        default_factory=DatasetConfig.get_choice_class(DatasetRegistry.RLDS_OXE_QNA_MIX1.dataset_id)
+    )
+
+    # Additional Parameters (should pass them if using JSON dataset -> above)
+    train_val_split_3qna: Optional[float] = 0.01                    # Training-validation split for conversations in RLDS Open-X datasets with 3 QnAs
+    train_val_split_multi_qna: Optional[float] = 0.9                # Training-validation split for conversations in RLDS Open-X datasets with more than 3 QnAs
+
+    # RLDS Directory Paths
+    # Specify this, if you want to train on a dataset in RLDS format, with added QnA pairs
+    rlds_data_root_dir: Optional[Path] = Path("/home/ubuntu/tensorflow_datasets")  # Path to Open-X dataset directory
+    rlds_data_mix: Optional[str] = "taco+mutex"                     # Name of dataset mixture
+    
     run_root_dir: Path = Path("/home/ubuntu/prismatic_vlas/runs")   # Path to directory to store logs & checkpoints
 
     # Stage
@@ -139,10 +151,15 @@ def train(cfg: TrainConfig) -> None:
     torch.cuda.set_device(device_id := overwatch.local_rank())
     torch.cuda.empty_cache()
 
-    # Configure Unique Run Name & Save Directory
+    # Check datasets
+    # Note => The JSON dataset takes precedence
+    assert cfg.json_dataset is not None or cfg.rlds_data_root_dir is not None, "Specify either a JSON Dataset config, or a RLDS data directory!"
+    use_json_dataset = True if cfg.json_dataset is not None else False
+
     # Create Unique Run Name & Save Directory
     model_id = cfg.model.model_id
-    cfg.run_id = f"{cfg.data_mix}+{model_id}+stage-{cfg.stage}+x{cfg.seed}" if cfg.run_id is None else cfg.run_id
+    data_id = cfg.json_dataset.dataset_id if use_json_dataset else cfg.rlds_data_mix
+    cfg.run_id = f"{data_id}+{model_id}+stage-{cfg.stage}+x{cfg.seed}" if cfg.run_id is None else cfg.run_id
     cfg.run_id += f"--{cfg.run_id_note}"
     if cfg.image_aug:
         cfg.run_id += "--image_aug"
@@ -227,21 +244,37 @@ def train(cfg: TrainConfig) -> None:
     )
 
     # Get PrismaticVLA Dataset & Collator
-    overwatch.info(f"Creating PrismaticVLA Open-X Dataset with Mixture `{cfg.data_mix}`")
-    prismatic_vla_dataset, collator = get_prismatic_vla_dataset_and_collator(
-        cfg.data_root_dir,
-        cfg.data_mix,
-        image_transform=image_transform,
-        tokenizer=tokenizer,
-        prompt_builder_fn=vlm.llm_backbone.prompt_builder_fn,
-        default_image_resolution=vision_backbone.default_image_resolution,
-        shuffle_buffer_size=cfg.shuffle_buffer_size,
-        image_aug=cfg.image_aug,
-    )
+    if use_json_dataset:
+        overwatch.info(f"Creating Dataset `{cfg.json_dataset.dataset_id}` => Stage: `{cfg.stage}`")
+        prismatic_vla_json_dataset, collator = get_prismatic_vla_json_dataset_and_collator(
+            cfg.stage,
+            cfg.json_dataset,
+            image_transform,
+            tokenizer,
+            prompt_builder_fn=llm_backbone.prompt_builder_fn,
+            padding_side=tokenizer.padding_side,
+            train_val_split_3qna=cfg.train_val_split_3qna,
+            train_val_split_multi_qna=cfg.train_val_split_multi_qna
+        )
+        n_train_examples = len(prismatic_vla_json_dataset)
 
-    # Save dataset statistics for de-normalization at inference time
-    if overwatch.is_rank_zero():
-        save_dataset_statistics(prismatic_vla_dataset.dataset_statistics, run_dir)
+    else:
+        overwatch.info(f"Creating PrismaticVLA Open-X Dataset with Mixture `{cfg.rlds_data_mix}` => Stage: `{cfg.stage}`")
+        prismatic_vla_dataset, collator = get_prismatic_vla_dataset_and_collator(
+            cfg.rlds_data_root_dir,
+            cfg.rlds_data_mix,
+            image_transform=image_transform,
+            tokenizer=tokenizer,
+            prompt_builder_fn=vlm.llm_backbone.prompt_builder_fn,
+            default_image_resolution=vision_backbone.default_image_resolution,
+            shuffle_buffer_size=cfg.shuffle_buffer_size,
+            image_aug=cfg.image_aug,
+        )
+        n_train_examples = len(prismatic_vla_dataset)
+
+        # Save dataset statistics for de-normalization at inference time
+        if overwatch.is_rank_zero():
+            save_dataset_statistics(prismatic_vla_dataset.dataset_statistics, run_dir)
 
     # Create Train Strategy
     overwatch.info(f"Initializing Train Strategy `{cfg.train_strategy}`")
@@ -264,7 +297,7 @@ def train(cfg: TrainConfig) -> None:
         reduce_in_full_precision=cfg.model.reduce_in_full_precision,
         worker_init_fn=worker_init_fn,
     )
-    train_strategy.run_setup(run_dir=run_dir, n_train_examples=len(prismatic_vla_dataset))
+    train_strategy.run_setup(run_dir=run_dir, n_train_examples=n_train_examples)
 
     # Create Metrics =>> Handles on the fly tracking, logging to specified trackers (e.g., JSONL, Weights & Biases)
     overwatch.info(f"Creating Metrics with Active Trackers => `{cfg.trackers}`")
@@ -281,15 +314,29 @@ def train(cfg: TrainConfig) -> None:
 
     # Run PrismaticVLA Training
     overwatch.info("Starting PrismaticVLA Training Loop")
-    train_strategy.run_prismatic_vla_training(
-        prismatic_vla_dataset,
-        collator,
-        metrics,
-        save_interval=cfg.save_interval,
-        overwrite=cfg.overwrite,
-        lm_loss_weight=cfg.lm_loss_weight,
-        action_l2_loss_weight=cfg.action_l2_loss_weight,
-    )
+    if use_json_dataset:
+        train_strategy.run_prismatic_vla_json_training(
+            prismatic_vla_json_dataset,
+            collator,
+            metrics,
+            stage=cfg.stage,
+            seed=cfg.seed,
+            save_interval=cfg.save_interval,
+            overwrite=cfg.overwrite,
+            lm_loss_weight=cfg.lm_loss_weight,
+            action_l2_loss_weight=cfg.action_l2_loss_weight,
+        )
+        
+    else:
+        train_strategy.run_prismatic_vla_training(
+            prismatic_vla_dataset,
+            collator,
+            metrics,
+            save_interval=cfg.save_interval,
+            overwrite=cfg.overwrite,
+            lm_loss_weight=cfg.lm_loss_weight,
+            action_l2_loss_weight=cfg.action_l2_loss_weight,
+        )
 
     # Finalize
     overwatch.info("Done with Training =>> Finalizing Metrics")

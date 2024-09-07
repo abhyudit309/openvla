@@ -409,10 +409,10 @@ class PrismaticVLAMetrics:
             ) -> str:
         lr = self.state["lr"][-1] if len(self.state["lr"]) > 0 else 0
         if total_loss is None:
-            return f"=>> [Epoch {self.epoch:03d}] Global Step {self.global_step:06d} =>> LR :: {lr:.6f}"
+            return f"[Epoch {self.epoch:01d}] Global Step: {self.global_step:06d} LR: {lr:.6f}"
 
         # Otherwise, embed losses in status report!
-        return f"=>> [Epoch {self.epoch:03d}] Global Step {self.global_step:06d} =>> LR: {lr:.6f} - Total Loss: {total_loss:.4f} (LM Loss: {lm_loss:.4f}, Action L2 Loss: {action_l2_loss:.4f})"
+        return f"[Epoch {self.epoch:01d}] Global Step: {self.global_step:06d} LR: {lr:.6f} Total Loss: {total_loss:.3f} (LM Loss: {lm_loss:.3f}, Action L2 Loss: {action_l2_loss:.3f})"
 
     def commit(
         self,
