@@ -5,7 +5,7 @@ Factory class for initializing Vision Backbones, LLM Backbones, and VLMs from a 
 individual functions for clear control flow.
 """
 
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict
 
 from transformers import PreTrainedTokenizerBase
 
@@ -137,6 +137,8 @@ def get_vlm(
     vision_backbone: VisionBackbone,
     llm_backbone: LLMBackbone,
     enable_mixed_precision_training: bool = True,
+    use_action_head: bool = False,
+    action_head_configs: Optional[Dict] = None,
 ) -> PrismaticVLM:
     """Lightweight wrapper around initializing a VLM, mostly for future-proofing (if one wants to add a new VLM)."""
     return PrismaticVLM(
@@ -145,4 +147,6 @@ def get_vlm(
         llm_backbone,
         enable_mixed_precision_training=enable_mixed_precision_training,
         arch_specifier=arch_specifier,
+        use_action_head=use_action_head,
+        action_head_configs=action_head_configs,
     )
