@@ -13,9 +13,18 @@ from transformers import PreTrainedTokenizerBase
 
 from prismatic.models.backbones.llm.prompting import PromptBuilder
 from prismatic.models.backbones.vision import ImageTransform
-from prismatic.util.data_utils import PaddedCollatorForActionPrediction
 from prismatic.vla.action_tokenizer import ActionTokenizer
-from prismatic.vla.datasets import EpisodicRLDSDataset, RLDSBatchTransform, RLDSDataset
+from prismatic.util.data_utils import (
+    PaddedCollatorForActionPrediction, 
+    PaddedCollatorForLanguageModelingAndActionPrediction
+)
+from prismatic.vla.datasets import (
+    EpisodicRLDSDataset, 
+    RLDSBatchTransform, 
+    RLDSDataset,
+    RLDSQnABatchTransform,
+    RLDSQnADataset
+)
 
 
 def get_vla_dataset_and_collator(
@@ -54,3 +63,36 @@ def get_vla_dataset_and_collator(
     )
 
     return dataset, action_tokenizer, collator
+
+
+def get_prismatic_vla_dataset_and_collator(
+    data_root_dir: Path,
+    data_mix: str,
+    image_transform: ImageTransform,
+    tokenizer: PreTrainedTokenizerBase,
+    prompt_builder_fn: Type[PromptBuilder],
+    default_image_resolution: Tuple[int, int, int],
+    padding_side: str = "right",
+    shuffle_buffer_size: int = 100_000,
+    train: bool = True,
+    image_aug: bool = False,
+) -> Tuple[Dataset, PaddedCollatorForLanguageModelingAndActionPrediction]:
+    """Initialize RLDS QnA Dataset (wraps TFDS) and initialize transform/collation functions."""
+    batch_transform = RLDSQnABatchTransform(tokenizer, image_transform, prompt_builder_fn)
+    collator = PaddedCollatorForLanguageModelingAndActionPrediction(
+        tokenizer.model_max_length, tokenizer.pad_token_id, padding_side=padding_side
+    )
+
+    # Build RLDS QnA Iterable Dataset
+    cls = RLDSQnADataset
+    dataset = cls(
+        data_root_dir,
+        data_mix,
+        batch_transform,
+        resize_resolution=default_image_resolution[1:],
+        shuffle_buffer_size=shuffle_buffer_size,
+        train=train,
+        image_aug=image_aug,
+    )
+
+    return dataset, collator
