@@ -206,7 +206,8 @@ OXE_NAMED_MIXTURES: Dict[str, List[Tuple[str, float]]] = {
 
 
 OXE_QNA_NAMED_MIXTURES: Dict[str, List[Tuple[str, float]]] = {
-    "mutex": [
+    "taco+mutex": [
+        ("taco_play_qna", 1.0),
         ("utaustin_mutex_qna", 1.0),
     ],
 }

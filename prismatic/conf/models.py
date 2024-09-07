@@ -102,8 +102,8 @@ class LLaVa_v15_Reproduction_7B(ModelConfig):
     # Finetune Stage Optimization Parameters
     finetune_epochs: int = 1
     finetune_max_steps: Optional[int] = None
-    finetune_global_batch_size: int = 16
-    finetune_per_device_batch_size: int = 4
+    finetune_global_batch_size: int = 8
+    finetune_per_device_batch_size: int = 2
 
     finetune_learning_rate: float = 2e-5
     finetune_weight_decay: float = 0.1
@@ -454,7 +454,7 @@ class Prism_7B_DINOSigLIP(Exp_7B_One_Stage):
     image_resize_strategy: str = "resize-naive"
     llm_backbone_id: str = "llama2-7b-pure"
     arch_specifier: str = "no-align+fused-gelu-mlp"
-    finetune_epochs: int = 5
+    finetune_epochs: int = 2
 
 
 #   =>> Note :: Run with `--dataset.type "llava-lvis4v-lrv"`

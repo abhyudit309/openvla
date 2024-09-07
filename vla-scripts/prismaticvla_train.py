@@ -50,8 +50,8 @@ class TrainConfig:
 
     # Directory Paths
     data_root_dir: Path = Path("/home/ubuntu/tensorflow_datasets")  # Path to Open-X dataset directory
-    data_mix: str = "mutex"                                         # Name of dataset mixture
-    run_root_dir: Path = Path("runs")                               # Path to directory to store logs & checkpoints
+    data_mix: str = "taco+mutex"                                    # Name of dataset mixture
+    run_root_dir: Path = Path("/home/ubuntu/prismatic_vlas/runs")   # Path to directory to store logs & checkpoints
 
     # Stage
     stage: str = "lora-finetune"                                    # Training Stage
@@ -65,7 +65,7 @@ class TrainConfig:
     # Run Arguments
     run_id: Optional[str] = None                                    # Run ID for logging, Weights & Biases
     run_id_note: str = "vla"                                        # Extra note for logging, Weights & Biases
-    save_interval: int = 2500                                       # Interval for saving checkpoints (in steps)
+    save_interval: int = 500                                        # Interval for saving checkpoints (in steps)
     overwrite: bool = True                                          # Whether to overwrite checkpoints
     image_aug: bool = False                                         # Whether to enable image augmentations
     seed: int = 7                                                   # Random seed (for reproducibility)
