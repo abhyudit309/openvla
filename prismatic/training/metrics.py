@@ -412,7 +412,7 @@ class PrismaticVLAMetrics:
             return f"=>> [Epoch {self.epoch:03d}] Global Step {self.global_step:06d} =>> LR :: {lr:.6f}"
 
         # Otherwise, embed losses in status report!
-        return f"=>> [Epoch {self.epoch:03d}] Global Step {self.global_step:06d} =>> LR :: {lr:.6f} - Total Loss :: {total_loss:.4f} - LM Loss :: {lm_loss:.4f} - Action L2 Loss :: {action_l2_loss:.4f}"
+        return f"=>> [Epoch {self.epoch:03d}] Global Step {self.global_step:06d} =>> LR: {lr:.6f} - Total Loss: {total_loss:.4f} (LM Loss: {lm_loss:.4f}, Action L2 Loss: {action_l2_loss:.4f})"
 
     def commit(
         self,

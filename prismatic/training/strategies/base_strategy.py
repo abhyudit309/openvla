@@ -547,3 +547,191 @@ class TrainingStrategy(ABC):
                     overwrite=overwrite,
                 )
                 dist.barrier()
+
+    # === Prismatic VLA Training with JSON dataset ===
+    
+    def run_prismatic_vla_json_training(
+        self,
+        prismatic_vla_json_dataset: Dataset,
+        collator: PaddedCollatorForLanguageModelingAndActionPrediction,
+        metrics: PrismaticVLAMetrics,
+        stage: str = "lora-finetune",
+        batch_construction_strategy: str = "split-modality",
+        seed: int = 7,
+        save_interval: int = 2500,
+        overwrite: bool = False,
+        save_full_model: bool = True,
+        lm_loss_weight: float = 0.5,
+        action_l2_loss_weight: float = 0.5,
+    ) -> None:
+        """
+        Run the training loop for the given `dataset` and `collator`; log losses, results to `metrics`
+        """
+        assert isinstance(prismatic_vla_json_dataset, Dataset), "PrismaticVLA training expects a Dataset!"
+        assert stage == "lora-finetune", f"Stage `{stage}` is not supported!"
+        assert batch_construction_strategy == "split-modality"
+
+        assert self.vlm.use_action_head, "PrismaticVLA should have an Action Head!"
+
+        assert lm_loss_weight >= 0 and action_l2_loss_weight >= 0, "Weights for losses must be non-negative (>= 0)!"
+        assert lm_loss_weight + action_l2_loss_weight == 1.0, "The weights for losses should sum to 1!"
+
+        # Instantiate the split-modality sampler
+        modality_lengths = prismatic_vla_json_dataset.get_modality_lengths()
+        sampler = SplitModalitySampler(
+            prismatic_vla_json_dataset,
+            modality_lengths,
+            global_batch_size=self.global_batch_size,
+            num_replicas=overwatch.world_size(),
+            rank=overwatch.rank(),
+            seed=seed,
+            drop_last=False,
+        )
+
+        # Create a DataLoader with the initialized sampler, per-device-bsz, and collator
+        dataloader = DataLoader(
+            prismatic_vla_json_dataset,
+            batch_size=self.per_device_batch_size,
+            sampler=sampler,
+            collate_fn=collator,
+            num_workers=2,
+            worker_init_fn=self.worker_init_fn,
+        )
+
+        # Max Steps vs. Epochs Computation
+        steps_per_epoch = len(dataloader) // self.grad_accumulation_steps
+        if self.max_steps is not None and steps_per_epoch < self.max_steps:
+            # Just set `epochs` to some large number --> we'll short-circuit based on steps anyway
+            self.epochs = 100
+
+        # === Train ===
+        status = metrics.get_status()
+        with tqdm(
+            total=(
+                (self.epochs * (len(dataloader) // self.grad_accumulation_steps))
+                if self.max_steps is None
+                else self.max_steps
+            ),
+            desc=status,
+            leave=False,
+            disable=not overwatch.is_rank_zero(),
+        ) as progress:
+            for epoch in range(self.epochs):
+                self.vlm.train()
+                sampler.set_epoch(epoch)
+
+                # Zero-Gradients (just in case)
+                self.optimizer.zero_grad()
+
+                # Note that we'll unpack batch (and let AMP/FSDP do its thing) in the VLM.forward() call
+                #   => Basically, if we're using mixed precision (or not), autocast()/FSDP will move to device!
+                for train_idx, batch in enumerate(dataloader):
+                    # [Contract] self.vlm.forward() must automatically compute language modeling loss
+                    with torch.autocast(
+                        "cuda",
+                        dtype=self.mixed_precision_dtype,
+                        enabled=self.enable_mixed_precision_training,
+                    ):
+                        output: CausalLMOutputWithPast
+                        output, pred_actions = self.vlm(
+                            input_ids=batch["input_ids"],
+                            attention_mask=batch["attention_mask"],
+                            pixel_values=batch["pixel_values"],
+                            labels=batch["labels"],
+                        )
+
+                    # Calculate total loss =>> Weighed sum of language modeling 
+                    # loss and action L2 loss 
+                    lm_loss = output.loss
+                    gt_actions = batch["actions"].to(pred_actions.device)
+                    action_l2_loss = torch.nn.functional.mse_loss(pred_actions, gt_actions)
+
+                    total_loss = lm_loss_weight * lm_loss + action_l2_loss_weight * action_l2_loss
+
+                    # Commit Loss (Prior to Gradient Accumulation Normalization)
+                    metrics.commit(total_loss=total_loss)
+
+                    # Normalize Loss to account for Gradient Accumulation --> Backward!
+                    # [IMPORTANT] Technically speaking, doing gradient accumulation in this way is "incorrect"; this is
+                    #             because in general, each batch has a *different number of masked out tokens* (because
+                    #             we're instruct-tuning). Taking the mean over two unbalanced means != the right thing!
+                    #
+                    #             HOWEVER -- at least at the 7B scale, the "naive" approach is just as performant as
+                    #             the "correct" implementation, without adding extra complexity.
+                    #
+                    # That being said =>> at the 13B scale, *no matter what we tried, ANY gradient accumulation is just
+                    #   really bad for downstream performance. Initial investigation shows that BF16 accumulation
+                    #   just really tanks in precision... and don't have a good/clean way to fix this. Would love for
+                    #   someone to PR and fix this (and I'd greatly appreciate it!!!)
+                    normalized_loss = total_loss / self.grad_accumulation_steps
+                    normalized_loss.backward()
+
+                    # === Compute Metrics === #
+                    action_l1_loss = torch.nn.functional.l1_loss(pred_actions, gt_actions)
+
+                    metrics.commit(
+                        lm_loss=lm_loss,
+                        action_l1_loss=action_l1_loss, 
+                        action_l2_loss=action_l2_loss, 
+                    )
+
+                    # Compute metrics per dataset --> only on rank_zero since we don't log them on other workers anyways
+                    if overwatch.is_rank_zero():
+                        datasets = set(batch["dataset_names"])
+                        if len(datasets) > 1:
+                            for ds in datasets:
+                                ds_mask = torch.tensor([elem == ds for elem in batch["dataset_names"]])
+                                action_l1_loss_ds = torch.nn.functional.l1_loss(pred_actions[ds_mask], gt_actions[ds_mask])
+                                action_l2_loss_ds = torch.nn.functional.mse_loss(pred_actions[ds_mask], gt_actions[ds_mask])
+
+                                metrics.commit_for_dataset(
+                                    dataset_name=ds.decode(), 
+                                    action_l1_loss=action_l1_loss_ds, 
+                                    action_l2_loss=action_l2_loss_ds,
+                                )
+
+                    # Step =>> Only if Done w/ Gradient Accumulation
+                    if (train_idx + 1) % self.grad_accumulation_steps == 0:
+                        metrics.commit(update_step_time=True)
+
+                        # Clip Gradients --> this is custom, per-strategy because of DDP vs. FSDP locality-assumptions
+                        self.clip_grad_norm()
+
+                        # Optimizer & LR Scheduler Step
+                        self.optimizer.step()
+                        self.lr_scheduler.step()
+                        self.optimizer.zero_grad()
+
+                        # Push Metrics
+                        metrics.commit(global_step=metrics.global_step + 1, lr=self.lr_scheduler.get_last_lr()[0])
+                        status = metrics.push()
+
+                        # Check for Save Interval or Max Steps & Save Checkpoint
+                        if (terminate := (self.max_steps is not None and metrics.global_step >= self.max_steps)) or (
+                            (metrics.global_step % save_interval) == 0):
+                            self.save_checkpoint(
+                                metrics.run_dir,
+                                metrics.global_step, 
+                                epoch, 
+                                total_loss.item(),
+                                only_trainable=not save_full_model, 
+                                overwrite=overwrite)
+                            dist.barrier()
+
+                            if terminate:
+                                return
+
+                        # Update Progress Bar
+                        progress.update()
+                        progress.set_description(status)
+
+            # Save checkpoint at the end (if `self.max_steps` is None)
+            if (self.max_steps is None) and ((metrics.global_step % save_interval) != 0):
+                self.save_checkpoint(
+                    metrics.run_dir, 
+                    metrics.global_step, 
+                    epoch, 
+                    total_loss.item(),
+                    only_trainable=not save_full_model, 
+                    overwrite=overwrite)
+                dist.barrier()
