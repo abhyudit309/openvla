@@ -4,5 +4,6 @@ from .datasets import (
     RLDSBatchTransform, 
     RLDSDataset,
     RLDSQnABatchTransform,
-    RLDSQnADataset
+    RLDSQnADataset,
+    RLDSQnAJSONDataset,
 )

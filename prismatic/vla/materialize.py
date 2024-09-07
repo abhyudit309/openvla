@@ -6,11 +6,12 @@ exports individual functions for clear control flow.
 """
 
 from pathlib import Path
-from typing import Tuple, Type
+from typing import Tuple, Type, Optional
 
 from torch.utils.data import Dataset
 from transformers import PreTrainedTokenizerBase
 
+from prismatic.conf.datasets import DatasetConfig
 from prismatic.models.backbones.llm.prompting import PromptBuilder
 from prismatic.models.backbones.vision import ImageTransform
 from prismatic.vla.action_tokenizer import ActionTokenizer
@@ -23,7 +24,8 @@ from prismatic.vla.datasets import (
     RLDSBatchTransform, 
     RLDSDataset,
     RLDSQnABatchTransform,
-    RLDSQnADataset
+    RLDSQnADataset,
+    RLDSQnAJSONDataset,
 )
 
 
@@ -95,4 +97,34 @@ def get_prismatic_vla_dataset_and_collator(
         image_aug=image_aug,
     )
 
+    return dataset, collator
+
+
+def get_prismatic_vla_json_dataset_and_collator(
+    stage: str,
+    dataset_cfg: DatasetConfig,
+    image_transform: ImageTransform,
+    tokenizer: PreTrainedTokenizerBase,
+    prompt_builder_fn: Type[PromptBuilder],
+    padding_side: str = "right",
+    train_val_split_3qna: Optional[float] = None,
+    train_val_split_multi_qna: Optional[float] = None,
+) -> Tuple[Dataset, PaddedCollatorForLanguageModelingAndActionPrediction]:
+    assert stage == "lora-finetune", f"Stage `{stage}` is not supported!"
+
+    dataset_root_dir = dataset_cfg.dataset_root_dir
+    collator = PaddedCollatorForLanguageModelingAndActionPrediction(
+        tokenizer.model_max_length, tokenizer.pad_token_id, padding_side=padding_side
+    )
+    
+    annotation_json, image_dir = dataset_cfg.finetune_stage_components
+    dataset = RLDSQnAJSONDataset(
+        dataset_root_dir / annotation_json,
+        dataset_root_dir / image_dir,
+        image_transform,
+        tokenizer,
+        prompt_builder_fn=prompt_builder_fn,
+        train_val_split_3qna=train_val_split_3qna,
+        train_val_split_multi_qna=train_val_split_multi_qna,
+    )
     return dataset, collator
