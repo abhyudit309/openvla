@@ -20,11 +20,15 @@ from transformers.modeling_outputs import CausalLMOutputWithPast
 
 from prismatic.models.vlms import PrismaticVLM
 from prismatic.overwatch import initialize_overwatch
-from prismatic.training.metrics import Metrics, VLAMetrics
+from prismatic.training.metrics import Metrics, VLAMetrics, PrismaticVLAMetrics
 from prismatic.util import check_bloat16_supported
 from prismatic.util.batching_utils import SplitModalitySampler
-from prismatic.util.data_utils import PaddedCollatorForActionPrediction, PaddedCollatorForLanguageModeling
 from prismatic.vla.action_tokenizer import ActionTokenizer
+from prismatic.util.data_utils import (
+    PaddedCollatorForActionPrediction, 
+    PaddedCollatorForLanguageModeling,
+    PaddedCollatorForLanguageModelingAndActionPrediction
+)
 
 # Initialize Overwatch =>> Wraps `logging.Logger`
 overwatch = initialize_overwatch(__name__)
@@ -392,3 +396,154 @@ class TrainingStrategy(ABC):
                 # Update Progress Bar
                 progress.update()
                 progress.set_description(status)
+
+    # === Prismatic VLA Training ===
+
+    def run_prismatic_vla_training(
+        self,
+        prismatic_vla_dataset: IterableDataset,
+        collator: PaddedCollatorForLanguageModelingAndActionPrediction,
+        metrics: PrismaticVLAMetrics,
+        save_interval: int = 2500,
+        overwrite: bool = False,
+        save_full_model: bool = True,
+        lm_loss_weight: float = 0.5,
+        action_l2_loss_weight: float = 0.5,
+    ) -> None:
+        """
+        Run the Prismatic VLA training loop for the given `dataset` and `collator`; 
+        log losses, action metrics to `metrics`.
+        """
+        assert isinstance(prismatic_vla_dataset, IterableDataset), "PrismaticVLA training expects an IterableDataset!"
+        assert self.grad_accumulation_steps == 1, "PrismaticVLA training does not support gradient accumulation!"
+        assert self.vlm.use_action_head, "PrismaticVLA should have an Action Head!"
+
+        assert lm_loss_weight >= 0 and action_l2_loss_weight >= 0, "Weights for losses must be non-negative (>= 0)!"
+        assert lm_loss_weight + action_l2_loss_weight == 1.0, "The weights for losses should sum to 1!"
+        
+        # Create a DataLoader =>> Set `num_workers` to 0; RLDS loader handles parallelism!
+        dataloader = DataLoader(
+            prismatic_vla_dataset,
+            batch_size=self.per_device_batch_size,
+            sampler=None,
+            collate_fn=collator,
+            num_workers=0,
+            worker_init_fn=self.worker_init_fn,
+        )
+
+        # === Train ===
+        status = metrics.get_status()
+        with tqdm(
+            total=(self.epochs * len(dataloader)) if self.max_steps is None else self.max_steps,
+            desc=status,
+            leave=False,
+            disable=not overwatch.is_rank_zero(),
+        ) as progress:
+            self.vlm.train()
+
+            # Zero-Gradients (just in case)
+            self.optimizer.zero_grad()
+
+            # [Contract] DataLoader wraps RLDS Loader (`.as_numpy_iterator() =>> implicit `.repeat()`)
+            #   => This means looping over the DataLoader is basically "infinite" (so no outer loop over epochs).
+            #      Slightly breaks default PyTorch semantics, which is why we adaptively compute `epoch` below.
+            for batch in dataloader:
+                # Note that we'll unpack batch (and let AMP/FSDP do its thing) in the VLM.forward() call
+                #   => Basically, if we're using mixed precision (or not), autocast()/FSDP will move to device!
+                with torch.autocast(
+                    "cuda", dtype=self.mixed_precision_dtype, enabled=self.enable_mixed_precision_training
+                ):
+                    # [Contract] self.vlm.forward() must automatically compute language modeling loss
+                    output: CausalLMOutputWithPast
+                    output, pred_actions = self.vlm(
+                        input_ids=batch["input_ids"],
+                        attention_mask=batch["attention_mask"],
+                        pixel_values=batch["pixel_values"],
+                        labels=batch["labels"],
+                    )
+
+                # Calculate total loss =>> Weighed sum of language modeling 
+                # loss and action L2 loss 
+                lm_loss = output.loss
+                gt_actions = batch["actions"].to(pred_actions.device)
+                action_l2_loss = torch.nn.functional.mse_loss(pred_actions, gt_actions)
+
+                total_loss = lm_loss_weight * lm_loss + action_l2_loss_weight * action_l2_loss
+
+                # Commit Loss =>> Backward!
+                metrics.commit(total_loss=total_loss)
+                total_loss.backward()
+
+                # === Compute Metrics === #
+                action_l1_loss = torch.nn.functional.l1_loss(pred_actions, gt_actions)
+
+                metrics.commit(
+                    lm_loss=lm_loss,
+                    action_l1_loss=action_l1_loss, 
+                    action_l2_loss=action_l2_loss, 
+                    update_step_time=True,
+                )
+
+                # Compute metrics per dataset --> only on rank_zero since we don't log them on other workers anyways
+                if overwatch.is_rank_zero():
+                    datasets = set(batch["dataset_names"])
+                    if len(datasets) > 1:
+                        for ds in datasets:
+                            ds_mask = torch.tensor([elem == ds for elem in batch["dataset_names"]])
+                            action_l1_loss_ds = torch.nn.functional.l1_loss(pred_actions[ds_mask], gt_actions[ds_mask])
+                            action_l2_loss_ds = torch.nn.functional.mse_loss(pred_actions[ds_mask], gt_actions[ds_mask])
+
+                            metrics.commit_for_dataset(
+                                dataset_name=ds.decode(), 
+                                action_l1_loss=action_l1_loss_ds, 
+                                action_l2_loss=action_l2_loss_ds,
+                            )
+
+                # === Gradient Step === #
+
+                # Clip Gradients --> this is custom, per-strategy because of DDP vs. FSDP locality assumptions
+                self.clip_grad_norm()
+
+                # Optimizer & LR Scheduler Step
+                self.optimizer.step()
+                self.lr_scheduler.step()
+                self.optimizer.zero_grad()
+
+                # Compute epoch value using number of completed gradient steps
+                epoch = (metrics.global_step + 1) // (len(prismatic_vla_dataset) // self.global_batch_size)
+
+                # Push Metrics
+                metrics.commit(global_step=metrics.global_step + 1, epoch=epoch, lr=self.lr_scheduler.get_last_lr()[0])
+                status = metrics.push()
+
+                # Check for Save Interval or Max Steps & Save Checkpoint
+                if (terminate := (self.max_steps is not None and metrics.global_step >= self.max_steps)) or (
+                    (metrics.global_step % save_interval) == 0):
+                    self.save_checkpoint(
+                        metrics.run_dir, 
+                        metrics.global_step, 
+                        epoch, 
+                        total_loss.item(),
+                        only_trainable=not save_full_model, 
+                        overwrite=overwrite, 
+                    )
+                    dist.barrier()
+
+                    if terminate:
+                        return
+
+                # Update Progress Bar
+                progress.update()
+                progress.set_description(status)
+
+            # Save checkpoint at the end (if `self.max_steps` is None)
+            if (self.max_steps is None) and ((metrics.global_step % save_interval) != 0):
+                self.save_checkpoint(
+                    metrics.run_dir, 
+                    metrics.global_step, 
+                    epoch, 
+                    total_loss.item(),
+                    only_trainable=not save_full_model, 
+                    overwrite=overwrite,
+                )
+                dist.barrier()
