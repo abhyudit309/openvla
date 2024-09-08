@@ -15,7 +15,7 @@ from huggingface_hub import HfFileSystem, hf_hub_download
 from prismatic.conf import ModelConfig
 from prismatic.models.materialize import get_llm_backbone_and_tokenizer, get_vision_backbone_and_transform
 from prismatic.models.registry import GLOBAL_REGISTRY, MODEL_REGISTRY
-from prismatic.models.vlas import OpenVLA
+from prismatic.models.vlas import OpenVLA, PrismaticVLA
 from prismatic.models.vlms import PrismaticVLM
 from prismatic.overwatch import initialize_overwatch
 from prismatic.vla.action_tokenizer import ActionTokenizer
@@ -229,3 +229,90 @@ def load_vla(
     )
 
     return vla
+
+
+# === Load Pretrained PrismaticVLA Model ===
+def load_prismatic_vla(
+    model_id_or_path: Union[str, Path],
+    hf_token: Optional[str] = None,
+    cache_dir: Optional[Union[str, Path]] = None,
+    load_for_training: bool = False,
+    **loading_kwargs: Any,
+) -> PrismaticVLA:
+    """
+    Loads a pretrained PrismaticVLA from either local disk or the HuggingFace Hub.
+    """
+    if os.path.isdir(model_id_or_path):
+        overwatch.info(f"Loading from local path `{(run_dir := Path(model_id_or_path))}`")
+
+        # Get paths for `config.json` and pretrained checkpoint
+        checkpoint_dir = run_dir / "checkpoints"
+        checkpoints = list(checkpoint_dir.glob("*.pt"))
+        assert len(checkpoints) == 1, "Expected one checkpoint!"
+        checkpoint_pt = checkpoints[0]
+        config_json = run_dir / "config.json"
+        assert config_json.exists(), f"Missing `config.json` for `{run_dir = }`"
+        assert checkpoint_pt.exists(), f"Missing checkpoint for `{run_dir = }`"
+    else:
+        if model_id_or_path not in GLOBAL_REGISTRY:
+            raise ValueError(f"Couldn't find `{model_id_or_path = }; check `prismatic.available_model_names()`")
+
+        overwatch.info(f"Downloading `{(model_id := GLOBAL_REGISTRY[model_id_or_path]['model_id'])} from HF Hub")
+        with overwatch.local_zero_first():
+            config_json = hf_hub_download(repo_id=HF_HUB_REPO, filename=f"{model_id}/config.json", cache_dir=cache_dir)
+            checkpoint_pt = hf_hub_download(
+                repo_id=HF_HUB_REPO, filename=f"{model_id}/checkpoints/latest-checkpoint.pt", cache_dir=cache_dir
+            )
+
+    # Load Model and Action Head Config from `config.json`
+    with open(config_json, "r") as f:
+        cfg = json.load(f)
+    
+    model_cfg = cfg["model"]
+    action_head_configs = {
+        "action_head_specifier": cfg["action_head_specifier"],
+        "use_map": cfg["use_map"],
+        "num_map_heads": cfg["num_map_heads"],
+    }
+
+    # = Load Individual Components necessary for Instantiating a PrismaticVLA =
+    #   =>> Print Minimal Config
+    overwatch.info(
+        f"Found Config =>> Loading & Freezing [bold blue]{model_cfg['model_id']}[/] with:\n"
+        f"             Vision Backbone =>> [bold]{model_cfg['vision_backbone_id']}[/]\n"
+        f"             LLM Backbone    =>> [bold]{model_cfg['llm_backbone_id']}[/]\n"
+        f"             Action Head     =>> [bold]{action_head_configs['action_head_specifier']}[/]\n"
+        f"             Arch Specifier  =>> [bold]{model_cfg['arch_specifier']}[/]\n"
+        f"             Checkpoint Path =>> [underline]`{checkpoint_pt}`[/]"
+    )
+
+    # Load Vision Backbone
+    overwatch.info(f"Loading Vision Backbone [bold]{model_cfg['vision_backbone_id']}[/]")
+    vision_backbone, image_transform = get_vision_backbone_and_transform(
+        model_cfg["vision_backbone_id"],
+        model_cfg["image_resize_strategy"],
+    )
+
+    # Load LLM Backbone --> note `inference_mode = True` by default when calling `load()`
+    overwatch.info(f"Loading Pretrained LLM [bold]{model_cfg['llm_backbone_id']}[/] via HF Transformers")
+    llm_backbone, tokenizer = get_llm_backbone_and_tokenizer(
+        model_cfg["llm_backbone_id"],
+        llm_max_length=model_cfg.get("llm_max_length", 2048),
+        hf_token=hf_token,
+        **loading_kwargs,
+    )
+
+    # Load PrismaticVLA using `from_pretrained` (clobbers HF syntax... eventually should reconcile)
+    overwatch.info(f"Loading PrismaticVLA [bold blue]{model_cfg['model_id']}[/] from Checkpoint")
+    prismatic_vla = PrismaticVLA.from_pretrained(
+        checkpoint_pt,
+        model_cfg["model_id"],
+        vision_backbone,
+        llm_backbone,
+        arch_specifier=model_cfg["arch_specifier"],
+        freeze_weights=not load_for_training,
+        use_action_head=True,
+        action_head_configs=action_head_configs,
+    )
+
+    return prismatic_vla

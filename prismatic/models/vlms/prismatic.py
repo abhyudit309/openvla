@@ -149,6 +149,10 @@ class PrismaticVLM(VLM):
         if "vision_backbone" in model_state_dict.keys():
             vlm.vision_backbone.load_state_dict(model_state_dict["vision_backbone"])
 
+        if "action_head" in model_state_dict.keys():
+            assert vlm.use_action_head
+            vlm.action_head.load_state_dict(model_state_dict["action_head"])
+
         # Freeze Weights
         if freeze_weights:
             vlm.requires_grad_(False)
@@ -195,6 +199,10 @@ class PrismaticVLM(VLM):
 
         if "vision_backbone" in model_state_dict.keys():
             vlm.vision_backbone.load_state_dict(model_state_dict["vision_backbone"])
+
+        if "action_head" in model_state_dict.keys():
+            assert vlm.use_action_head
+            vlm.action_head.load_state_dict(model_state_dict["action_head"])
 
         # Freeze Weights
         if freeze_weights:
