@@ -50,9 +50,10 @@ class PrismaticVLA(PrismaticVLM):
         self, 
         image: Image, 
         prompt_text: str, 
-        unnorm_key: Optional[str] = None, 
+        unnorm_key: Optional[str] = None,
+        return_action: bool = True,
         **kwargs: str
-    ) -> Tuple[str, np.ndarray]:
+    ) -> Tuple[str, Optional[np.ndarray]]:
         """
         Core function for PrismaticVLA inference; maps input image and task instruction to continuous action.
 
@@ -60,6 +61,7 @@ class PrismaticVLA(PrismaticVLM):
         @param prompt_text: Text string
         @param unnorm_key: Optional dataset name for retrieving un-normalizing statistics; if None, checks that model
                            was trained only on a single dataset, and retrieves those statistics.
+        @param return_action: Whether to return action along with generated text.
 
         @return Unnormalized (continuous) action vector --> end-effector deltas.
         """
@@ -90,10 +92,12 @@ class PrismaticVLA(PrismaticVLM):
         # => Note: 'forward'/'generate' does NOT generate actions for us since we are doing inference, 
         # so we do it here explicitly. The last layer output should only have embeddings for the prompt 
         # text (time step = 0), and NOT the response!
-        llm_last_layer_output = output.hidden_states[0][-1]
-        actions = self.action_head(llm_last_layer_output)[0].to(dtype=torch.float32).cpu().numpy()
+        actions = None
+        if return_action:
+            llm_last_layer_output = output.hidden_states[0][-1]
+            actions = self.action_head(llm_last_layer_output)[0].to(dtype=torch.float32).cpu().numpy()
 
-        # TODO: Unnormalizing actions (if applicable!)
+            # TODO: Unnormalizing actions (if applicable!)
 
         # Get the generated response
         generated_ids = output.sequences
