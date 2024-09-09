@@ -313,6 +313,7 @@ def load_prismatic_vla(
         freeze_weights=not load_for_training,
         use_action_head=True,
         action_head_configs=action_head_configs,
+        use_action_head_for_inference = not load_for_training,
     )
 
     return prismatic_vla

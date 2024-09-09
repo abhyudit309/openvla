@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from functools import partial
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Type, Union
+from typing import Callable, Dict, List, Optional, Type, Union, Tuple
 
 import torch
 from PIL import Image
@@ -46,6 +46,7 @@ class PrismaticVLM(VLM):
         arch_specifier: str = "gelu-mlp",
         use_action_head: bool = False,
         action_head_configs: Optional[Dict] = None,
+        use_action_head_for_inference: bool = False,
         **kwargs,
     ) -> None:
         super().__init__(
@@ -78,6 +79,7 @@ class PrismaticVLM(VLM):
         self.trainable_module_keys = []
 
         self.use_action_head = use_action_head
+        self.use_action_head_for_inference = use_action_head_for_inference
         if use_action_head:
             self.action_head_configs = action_head_configs
             assert action_head_configs, "Should specify config for action head is using it!"
@@ -451,7 +453,7 @@ class PrismaticVLM(VLM):
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
         multimodal_indices: Optional[torch.LongTensor] = None,
-    ) -> CausalLMOutputWithPast:
+    ) -> Union[CausalLMOutputWithPast, Tuple[CausalLMOutputWithPast, torch.Tensor]]:
         """Run a forward pass through the VLM, returning a CausalLMOutputWithPast instance (contains loss)."""
 
         # Handle Inference (leverage cache, short-circuit on just LLM forward)
@@ -470,7 +472,7 @@ class PrismaticVLM(VLM):
                 return_dict=return_dict,
             )
 
-            if self.use_action_head:
+            if self.use_action_head and not self.use_action_head_for_inference:
                 llm_last_layer_output = output.hidden_states[-1]
                 actions = self.action_head(llm_last_layer_output)
                 return output, actions
@@ -499,7 +501,7 @@ class PrismaticVLM(VLM):
                 return_dict=return_dict,
             )
 
-            if self.use_action_head:
+            if self.use_action_head and not self.use_action_head_for_inference:
                 llm_last_layer_output = output.hidden_states[-1]
                 actions = self.action_head(llm_last_layer_output)
                 return output, actions
@@ -622,7 +624,12 @@ class PrismaticVLM(VLM):
             return_dict=return_dict,
         )
 
-        if self.use_action_head:
+        # => Note: If using the action head (PrismaticVLA) for training, 'forward'
+        # should return both output and actions. If using the action head for inference,
+        # it should just return the llm output to ensure compatibility with 'generate'.
+        # In that case, actions are computed explicitly by passing the last layer output
+        # through the action head outside 'forward'.
+        if self.use_action_head and not self.use_action_head_for_inference:
             llm_last_layer_output = output.hidden_states[-1]
             actions = self.action_head(llm_last_layer_output)
             return output, actions

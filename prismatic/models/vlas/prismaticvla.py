@@ -4,12 +4,11 @@ prismaticvla.py
 PyTorch Module defining PrismaticVLA as a lightweight wrapper around a PrismaticVLM.
 """
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
 from PIL import Image
-from transformers import LlamaTokenizerFast
 
 from prismatic.models.backbones.llm import LLMBackbone
 from prismatic.models.backbones.vision import VisionBackbone
@@ -26,11 +25,12 @@ class PrismaticVLA(PrismaticVLM):
         model_id: str,
         vision_backbone: VisionBackbone,
         llm_backbone: LLMBackbone,
-        norm_stats: Dict[str, Dict[str, Dict[str, Dict[str, List[float]]]]],
         enable_mixed_precision_training: bool = True,
         arch_specifier: str = "gelu-mlp",
         use_action_head: bool = True,
-        action_head_specifier: Optional[str] = "gelu",
+        action_head_configs: Optional[Dict] = None,
+        use_action_head_for_inference: bool = False,
+        norm_stats: Optional[Dict[str, Dict[str, Dict[str, Dict[str, List[float]]]]]] = None,
     ) -> None:
         super().__init__(
             model_id=model_id,
@@ -39,44 +39,35 @@ class PrismaticVLA(PrismaticVLM):
             enable_mixed_precision_training=enable_mixed_precision_training,
             arch_specifier=arch_specifier,
             use_action_head=use_action_head,
-            action_head_specifier=action_head_specifier
+            action_head_configs=action_head_configs,
+            use_action_head_for_inference=use_action_head_for_inference,
         )
         
         self.norm_stats = norm_stats
 
     @torch.inference_mode()
-    def predict_action(
-        self, image: Image, instruction: str, unnorm_key: Optional[str] = None, **kwargs: str
-    ) -> np.ndarray:
+    def generate_response_and_predict_action(
+        self, 
+        image: Image, 
+        prompt_text: str, 
+        unnorm_key: Optional[str] = None, 
+        **kwargs: str
+    ) -> Tuple[str, np.ndarray]:
         """
-        Core function for VLA inference; maps input image and task instruction to continuous action.
+        Core function for PrismaticVLA inference; maps input image and task instruction to continuous action.
 
         @param image: PIL Image as [height, width, 3]
-        @param instruction: Task instruction string
+        @param prompt_text: Text string
         @param unnorm_key: Optional dataset name for retrieving un-normalizing statistics; if None, checks that model
                            was trained only on a single dataset, and retrieves those statistics.
 
         @return Unnormalized (continuous) action vector --> end-effector deltas.
         """
+        # For now, only support generation with a batch size of 1 for simplicity
         image_transform, tokenizer = self.vision_backbone.image_transform, self.llm_backbone.tokenizer
-
-        # Build VLA Prompt
-        prompt_builder = self.get_prompt_builder()
-        prompt_builder.add_turn(role="human", message=f"What action should the robot take to {instruction.lower()}?")
-        prompt_text = prompt_builder.get_prompt()
 
         # Prepare Inputs
         input_ids = tokenizer(prompt_text, truncation=True, return_tensors="pt").input_ids.to(self.device)
-        if isinstance(tokenizer, LlamaTokenizerFast):
-            # Note: We need to add this special empty token ('') after the colon (':') token in "ASSISTANT:"
-            #       in order for the predictions to match the training configuration and be accurate.
-            input_ids = torch.cat(
-                (input_ids, torch.unsqueeze(torch.Tensor([29871]).long(), dim=0).to(self.device)), dim=1
-            )
-        else:
-            raise ValueError(f"Unsupported `tokenizer` type = {type(tokenizer)}")
-
-        # Preprocess Image
         pixel_values = image_transform(image)
         if isinstance(pixel_values, torch.Tensor):
             pixel_values = pixel_values[None, ...].to(self.device)
@@ -84,29 +75,32 @@ class PrismaticVLA(PrismaticVLM):
             pixel_values = {k: v[None, ...].to(self.device) for k, v in pixel_values.items()}
         else:
             raise ValueError(f"Unsupported `pixel_values` type = {type(pixel_values)}")
-
+        
         # Invoke super().generate --> taps into `GenerationMixin` which (redirects) to `forward()`
         autocast_dtype = self.llm_backbone.half_precision_dtype
         with torch.autocast("cuda", dtype=autocast_dtype, enabled=self.enable_mixed_precision_training):
-            # fmt: off
-            normalized_actions = super(PrismaticVLM, self)(
+            output = super(PrismaticVLM, self).generate(
                 input_ids=input_ids,
                 pixel_values=pixel_values,
+                output_hidden_states=True,
+                return_dict_in_generate=True,
                 **kwargs
             )
-            # fmt: on
 
-        # Un-normalize Actions
-        action_norm_stats = self.get_action_stats(unnorm_key)
-        mask = action_norm_stats.get("mask", np.ones_like(action_norm_stats["q01"], dtype=bool))
-        action_high, action_low = np.array(action_norm_stats["q99"]), np.array(action_norm_stats["q01"])
-        actions = np.where(
-            mask,
-            0.5 * (normalized_actions + 1) * (action_high - action_low) + action_low,
-            normalized_actions,
-        )
+        # => Note: 'forward'/'generate' does NOT generate actions for us since we are doing inference, 
+        # so we do it here explicitly. The last layer output should only have embeddings for the prompt 
+        # text (time step = 0), and NOT the response!
+        llm_last_layer_output = output.hidden_states[0][-1]
+        actions = self.action_head(llm_last_layer_output)
+        actions = np.array(actions[0])
 
-        return actions
+        # TODO: Unnormalizing actions (if applicable!)
+
+        # Get the generated response
+        generated_ids = output.sequences
+        generated_text = tokenizer.decode(generated_ids[0, input_ids.shape[1] :], skip_special_tokens=True).strip()
+
+        return generated_text, actions
 
     @staticmethod
     def _check_unnorm_key(norm_stats: Dict, unnorm_key: str) -> str:
