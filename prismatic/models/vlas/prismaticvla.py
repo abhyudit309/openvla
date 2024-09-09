@@ -91,8 +91,7 @@ class PrismaticVLA(PrismaticVLM):
         # so we do it here explicitly. The last layer output should only have embeddings for the prompt 
         # text (time step = 0), and NOT the response!
         llm_last_layer_output = output.hidden_states[0][-1]
-        actions = self.action_head(llm_last_layer_output)
-        actions = np.array(actions[0])
+        actions = self.action_head(llm_last_layer_output)[0].cpu().numpy()
 
         # TODO: Unnormalizing actions (if applicable!)
 
