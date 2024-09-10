@@ -95,7 +95,7 @@ class PrismaticVLA(PrismaticVLM):
         actions = None
         if return_action:
             llm_last_layer_output = output.hidden_states[0][-1]
-            actions = self.action_head(llm_last_layer_output)[0].to(dtype=torch.float32).cpu().numpy()
+            actions = self.action_head.predict_action(llm_output=llm_last_layer_output)
 
             # TODO: Unnormalizing actions (if applicable!)
 
