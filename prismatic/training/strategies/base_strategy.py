@@ -408,7 +408,7 @@ class TrainingStrategy(ABC):
         overwrite: bool = False,
         save_full_model: bool = True,
         lm_loss_weight: float = 0.5,
-        action_l2_loss_weight: float = 0.5,
+        l2_loss_weight: float = 0.5,
     ) -> None:
         """
         Run the Prismatic VLA training loop for the given `dataset` and `collator`; 
@@ -418,9 +418,11 @@ class TrainingStrategy(ABC):
         assert self.grad_accumulation_steps == 1, "PrismaticVLA training does not support gradient accumulation!"
         assert self.vlm.use_action_head, "PrismaticVLA should have an Action Head!"
 
-        assert lm_loss_weight >= 0 and action_l2_loss_weight >= 0, "Weights for losses must be non-negative (>= 0)!"
-        assert lm_loss_weight + action_l2_loss_weight == 1.0, "The weights for losses should sum to 1!"
+        assert lm_loss_weight >= 0 and l2_loss_weight >= 0, "Weights for losses must be non-negative (>= 0)!"
+        assert lm_loss_weight + l2_loss_weight == 1.0, "The weights for losses should sum to 1!"
         
+        using_diffusion_action_head = self.vlm.action_head_configs["action_head_specifier"] == "diffusion"
+
         # Create a DataLoader =>> Set `num_workers` to 0; RLDS loader handles parallelism!
         dataloader = DataLoader(
             prismatic_vla_dataset,
@@ -454,33 +456,63 @@ class TrainingStrategy(ABC):
                     "cuda", dtype=self.mixed_precision_dtype, enabled=self.enable_mixed_precision_training
                 ):
                     # [Contract] self.vlm.forward() must automatically compute language modeling loss
-                    output: CausalLMOutputWithPast
-                    output, pred_actions = self.vlm(
+                    output: CausalLMOutputWithPast = self.vlm(
                         input_ids=batch["input_ids"],
                         attention_mask=batch["attention_mask"],
                         pixel_values=batch["pixel_values"],
                         labels=batch["labels"],
+                        output_hidden_states=True,
                     )
 
-                # Calculate total loss =>> Weighed sum of language modeling 
-                # loss and action L2 loss 
-                lm_loss = output.loss
-                gt_actions = batch["actions"].to(pred_actions.device)
-                action_l2_loss = torch.nn.functional.mse_loss(pred_actions, gt_actions)
+                    llm_last_layer_output = output.hidden_states[-1]
+                    gt_actions = batch["actions"].to(llm_last_layer_output.device)
 
-                total_loss = lm_loss_weight * lm_loss + action_l2_loss_weight * action_l2_loss
+                    if using_diffusion_action_head:
+                        batch_size = llm_last_layer_output.shape[0]
+
+                        # Generate random time and noise
+                        time = torch.randint(
+                            0,
+                            self.vlm.action_head.diffusion_steps,
+                            (self.vlm.action_head.n_diffusion_samples, batch_size, 1),
+                            generator=self.vlm.action_head.rng,
+                            device=llm_last_layer_output.device,
+                        )
+
+                        noise = torch.randn(
+                            (self.vlm.action_head.n_diffusion_samples, batch_size, 7), 
+                            generator=self.vlm.action_head.rng,
+                            device=llm_last_layer_output.device,
+                        )
+
+                        # Add noise to the action according to the schedule
+                        scale = torch.sqrt(self.vlm.action_head.alpha_hats[time])
+                        std = torch.sqrt(1 - self.vlm.action_head.alpha_hats[time])
+                        noisy_actions = scale * gt_actions.unsqueeze(0) + std * noise
+
+                        pred_eps = self.vlm.action_head(llm_last_layer_output, time=time, noisy_actions=noisy_actions)
+                        l1_loss = torch.nn.functional.l1_loss(pred_eps, noise)
+                        l2_loss = torch.nn.functional.mse_loss(pred_eps, noise)
+
+                    else:
+                        pred_actions = self.vlm.action_head(llm_last_layer_output)
+                        l1_loss = torch.nn.functional.l1_loss(pred_actions, gt_actions)
+                        l2_loss = torch.nn.functional.mse_loss(pred_actions, gt_actions)
+
+                    # Calculate total loss =>> Weighed sum of language modeling 
+                    # loss and action L2 loss 
+                    lm_loss = output.loss
+                    total_loss = lm_loss_weight * lm_loss + l2_loss_weight * l2_loss
 
                 # Commit Loss =>> Backward!
                 metrics.commit(total_loss=total_loss)
                 total_loss.backward()
 
-                # === Compute Metrics === #
-                action_l1_loss = torch.nn.functional.l1_loss(pred_actions, gt_actions)
-
+                # === Commit Metrics === #
                 metrics.commit(
                     lm_loss=lm_loss,
-                    action_l1_loss=action_l1_loss, 
-                    action_l2_loss=action_l2_loss, 
+                    l1_loss=l1_loss, 
+                    l2_loss=l2_loss, 
                     update_step_time=True,
                 )
 
@@ -490,13 +522,18 @@ class TrainingStrategy(ABC):
                     if len(datasets) > 1:
                         for ds in datasets:
                             ds_mask = torch.tensor([elem == ds for elem in batch["dataset_names"]])
-                            action_l1_loss_ds = torch.nn.functional.l1_loss(pred_actions[ds_mask], gt_actions[ds_mask])
-                            action_l2_loss_ds = torch.nn.functional.mse_loss(pred_actions[ds_mask], gt_actions[ds_mask])
+                            if using_diffusion_action_head:
+                                ds_mask = ds_mask.expand((self.vlm.action_head.n_diffusion_samples, ) + ds_mask.shape)
+                                l1_loss_ds = torch.nn.functional.l1_loss(pred_eps[ds_mask], noise[ds_mask])
+                                l2_loss_ds = torch.nn.functional.mse_loss(pred_eps[ds_mask], noise[ds_mask])
+                            else:
+                                l1_loss_ds = torch.nn.functional.l1_loss(pred_actions[ds_mask], gt_actions[ds_mask])
+                                l2_loss_ds = torch.nn.functional.mse_loss(pred_actions[ds_mask], gt_actions[ds_mask])
 
                             metrics.commit_for_dataset(
                                 dataset_name=ds.decode(), 
-                                action_l1_loss=action_l1_loss_ds, 
-                                action_l2_loss=action_l2_loss_ds,
+                                l1_loss=l1_loss_ds, 
+                                l2_loss=l2_loss_ds,
                             )
 
                 # === Gradient Step === #
@@ -562,7 +599,7 @@ class TrainingStrategy(ABC):
         overwrite: bool = False,
         save_full_model: bool = True,
         lm_loss_weight: float = 0.5,
-        action_l2_loss_weight: float = 0.5,
+        l2_loss_weight: float = 0.5,
     ) -> None:
         """
         Run the training loop for the given `dataset` and `collator`; log losses, results to `metrics`
@@ -573,8 +610,10 @@ class TrainingStrategy(ABC):
 
         assert self.vlm.use_action_head, "PrismaticVLA should have an Action Head!"
 
-        assert lm_loss_weight >= 0 and action_l2_loss_weight >= 0, "Weights for losses must be non-negative (>= 0)!"
-        assert lm_loss_weight + action_l2_loss_weight == 1.0, "The weights for losses should sum to 1!"
+        assert lm_loss_weight >= 0 and l2_loss_weight >= 0, "Weights for losses must be non-negative (>= 0)!"
+        assert lm_loss_weight + l2_loss_weight == 1.0, "The weights for losses should sum to 1!"
+
+        using_diffusion_action_head = self.vlm.action_head_configs["action_head_specifier"] == "diffusion"
 
         # Instantiate the split-modality sampler
         modality_lengths = prismatic_vla_json_dataset.get_modality_lengths()
@@ -628,25 +667,56 @@ class TrainingStrategy(ABC):
                 for train_idx, batch in enumerate(dataloader):
                     # [Contract] self.vlm.forward() must automatically compute language modeling loss
                     with torch.autocast(
-                        "cuda",
-                        dtype=self.mixed_precision_dtype,
-                        enabled=self.enable_mixed_precision_training,
+                        "cuda", dtype=self.mixed_precision_dtype, enabled=self.enable_mixed_precision_training,
                     ):
-                        output: CausalLMOutputWithPast
-                        output, pred_actions = self.vlm(
+                        # [Contract] self.vlm.forward() must automatically compute language modeling loss
+                        output: CausalLMOutputWithPast = self.vlm(
                             input_ids=batch["input_ids"],
                             attention_mask=batch["attention_mask"],
                             pixel_values=batch["pixel_values"],
                             labels=batch["labels"],
+                            output_hidden_states=True,
                         )
 
-                    # Calculate total loss =>> Weighed sum of language modeling 
-                    # loss and action L2 loss 
-                    lm_loss = output.loss
-                    gt_actions = batch["actions"].to(pred_actions.device)
-                    action_l2_loss = torch.nn.functional.mse_loss(pred_actions, gt_actions)
+                        llm_last_layer_output = output.hidden_states[-1]
+                        gt_actions = batch["actions"].to(llm_last_layer_output.device)
 
-                    total_loss = lm_loss_weight * lm_loss + action_l2_loss_weight * action_l2_loss
+                        if using_diffusion_action_head:
+                            batch_size = llm_last_layer_output.shape[0]
+
+                            # Generate random time and noise
+                            time = torch.randint(
+                                0,
+                                self.vlm.action_head.diffusion_steps,
+                                (self.vlm.action_head.n_diffusion_samples, batch_size, 1),
+                                generator=self.vlm.action_head.rng,
+                                device=llm_last_layer_output.device,
+                            )
+
+                            noise = torch.randn(
+                                (self.vlm.action_head.n_diffusion_samples, batch_size, 7), 
+                                generator=self.vlm.action_head.rng,
+                                device=llm_last_layer_output.device,
+                            )
+
+                            # Add noise to the action according to the schedule
+                            scale = torch.sqrt(self.vlm.action_head.alpha_hats[time])
+                            std = torch.sqrt(1 - self.vlm.action_head.alpha_hats[time])
+                            noisy_actions = scale * gt_actions.unsqueeze(0) + std * noise
+
+                            pred_eps = self.vlm.action_head(llm_last_layer_output, time=time, noisy_actions=noisy_actions)
+                            l1_loss = torch.nn.functional.l1_loss(pred_eps, noise)
+                            l2_loss = torch.nn.functional.mse_loss(pred_eps, noise)
+
+                        else:
+                            pred_actions = self.vlm.action_head(llm_last_layer_output)
+                            l1_loss = torch.nn.functional.l1_loss(pred_actions, gt_actions)
+                            l2_loss = torch.nn.functional.mse_loss(pred_actions, gt_actions)
+
+                        # Calculate total loss =>> Weighed sum of language modeling 
+                        # loss and action L2 loss 
+                        lm_loss = output.loss
+                        total_loss = lm_loss_weight * lm_loss + l2_loss_weight * l2_loss
 
                     # Commit Loss (Prior to Gradient Accumulation Normalization)
                     metrics.commit(total_loss=total_loss)
@@ -666,13 +736,11 @@ class TrainingStrategy(ABC):
                     normalized_loss = total_loss / self.grad_accumulation_steps
                     normalized_loss.backward()
 
-                    # === Compute Metrics === #
-                    action_l1_loss = torch.nn.functional.l1_loss(pred_actions, gt_actions)
-
+                    # === Commit Metrics === #
                     metrics.commit(
                         lm_loss=lm_loss,
-                        action_l1_loss=action_l1_loss, 
-                        action_l2_loss=action_l2_loss, 
+                        l1_loss=l1_loss, 
+                        l2_loss=l2_loss, 
                     )
 
                     # Compute metrics per dataset --> only on rank_zero since we don't log them on other workers anyways
@@ -681,13 +749,18 @@ class TrainingStrategy(ABC):
                         if len(datasets) > 1:
                             for ds in datasets:
                                 ds_mask = torch.tensor([elem == ds for elem in batch["dataset_names"]])
-                                action_l1_loss_ds = torch.nn.functional.l1_loss(pred_actions[ds_mask], gt_actions[ds_mask])
-                                action_l2_loss_ds = torch.nn.functional.mse_loss(pred_actions[ds_mask], gt_actions[ds_mask])
+                                if using_diffusion_action_head:
+                                    ds_mask = ds_mask.expand((self.vlm.action_head.n_diffusion_samples, ) + ds_mask.shape)
+                                    l1_loss_ds = torch.nn.functional.l1_loss(pred_eps[ds_mask], noise[ds_mask])
+                                    l2_loss_ds = torch.nn.functional.mse_loss(pred_eps[ds_mask], noise[ds_mask])
+                                else:
+                                    l1_loss_ds = torch.nn.functional.l1_loss(pred_actions[ds_mask], gt_actions[ds_mask])
+                                    l2_loss_ds = torch.nn.functional.mse_loss(pred_actions[ds_mask], gt_actions[ds_mask])
 
                                 metrics.commit_for_dataset(
                                     dataset_name=ds,
-                                    action_l1_loss=action_l1_loss_ds, 
-                                    action_l2_loss=action_l2_loss_ds,
+                                    l1_loss=l1_loss_ds, 
+                                    l2_loss=l2_loss_ds,
                                 )
 
                     # Step =>> Only if Done w/ Gradient Accumulation

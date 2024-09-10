@@ -388,8 +388,8 @@ class PrismaticVLAMetrics:
             "total_loss_raw": deque(maxlen=grad_accumulation_steps),
             "total_loss": deque(maxlen=window_size),
             "lm_loss": deque(maxlen=window_size),
-            "action_l1_loss": deque(maxlen=window_size),
-            "action_l2_loss": deque(maxlen=window_size),
+            "l1_loss": deque(maxlen=window_size),
+            "l2_loss": deque(maxlen=window_size),
             "step_time": deque(maxlen=window_size),
             "lr": [],
         }
@@ -405,14 +405,14 @@ class PrismaticVLAMetrics:
             self, 
             total_loss: Optional[torch.Tensor] = None,
             lm_loss: Optional[torch.Tensor] = None,
-            action_l2_loss: Optional[torch.Tensor] = None,
+            l2_loss: Optional[torch.Tensor] = None,
             ) -> str:
         lr = self.state["lr"][-1] if len(self.state["lr"]) > 0 else 0
         if total_loss is None:
             return f"[Epoch {self.epoch:01d}] Global Step: {self.global_step:06d} LR: {lr:.6f}"
 
         # Otherwise, embed losses in status report!
-        return f"[Epoch {self.epoch:01d}] Global Step: {self.global_step:06d} LR: {lr:.6f} Total Loss: {total_loss:.3f} (LM Loss: {lm_loss:.3f}, Action L2 Loss: {action_l2_loss:.3f})"
+        return f"[Epoch {self.epoch:01d}] Global Step: {self.global_step:06d} LR: {lr:.6f} Total Loss: {total_loss:.3f} (LM Loss: {lm_loss:.3f}, L2 Loss: {l2_loss:.3f})"
 
     def commit(
         self,
@@ -460,18 +460,18 @@ class PrismaticVLAMetrics:
         total_loss_raw = torch.stack(list(self.state["total_loss_raw"])).mean().item()
         total_loss = torch.stack(list(self.state["total_loss"])).mean().item()
         lm_loss = torch.stack(list(self.state["lm_loss"])).mean().item()
-        action_l1_loss = torch.stack(list(self.state["action_l1_loss"])).mean().item()
-        action_l2_loss = torch.stack(list(self.state["action_l2_loss"])).mean().item()
+        l1_loss = torch.stack(list(self.state["l1_loss"])).mean().item()
+        l2_loss = torch.stack(list(self.state["l2_loss"])).mean().item()
         step_time, lr = np.mean(list(self.state["step_time"])), self.state["lr"][-1]
-        status = self.get_status(total_loss, lm_loss, action_l2_loss)
+        status = self.get_status(total_loss, lm_loss, l2_loss)
 
         # Get metrics per dataset
         dataset_metrics = {}
         for ds, tracker in self.dataset_trackers.items():
             dataset_metrics.update(
                 {
-                    f"{ds}/Action L1 Loss": torch.stack(list(tracker.state["action_l1_loss"])).mean().item(),
-                    f"{ds}/Action L2 Loss": torch.stack(list(tracker.state["action_l2_loss"])).mean().item(),
+                    f"{ds}/L1 Loss": torch.stack(list(tracker.state["l1_loss"])).mean().item(),
+                    f"{ds}/L2 Loss": torch.stack(list(tracker.state["l2_loss"])).mean().item(),
                 }
             )
 
@@ -484,8 +484,8 @@ class PrismaticVLAMetrics:
                 f"{prefix}/Epoch": self.epoch,
                 f"{prefix}/Total Loss": total_loss,
                 f"{prefix}/LM Loss": lm_loss,
-                f"{prefix}/Action L1 Loss": action_l1_loss,
-                f"{prefix}/Action L2 Loss": action_l2_loss,
+                f"{prefix}/L1 Loss": l1_loss,
+                f"{prefix}/L2 Loss": l2_loss,
                 f"{prefix}/Total Loss (Raw)": total_loss_raw,
                 f"{prefix}/Learning Rate": lr,
                 f"{prefix}/Step Time": step_time,
