@@ -99,13 +99,13 @@ class TrainConfig:
     lora_target_modules = ["q_proj", "k_proj", "v_proj", "o_proj"]  # LoRA target modules
 
     # Action Head Arguments
-    action_head_specifier: str = "gelu"                             # Action Head Specifier (can be 'linear', 'relu', or 'gelu')
+    action_head_specifier: str = "diffusion"                        # Action Head Specifier (can be 'linear', 'relu', 'gelu', or 'diffusion')
     use_map: bool = True                                            # Whether to use Multi-head attention pooling, or mean pooling across sequence dimension
     num_map_heads: int = 8                                          # Number of attention heads (if using MAP)
 
     # Weights for losses
     lm_loss_weight: float = 0.5                                     # Weight for language modeling loss
-    action_l2_loss_weight: float = 0.5                              # Weight for action L2 loss
+    l2_loss_weight: float = 0.5                                     # Weight for L2 loss
 
     def __post_init__(self) -> None:
         """Set optimization parameters based on `stage` in {"align", "finetune"}."""
@@ -159,7 +159,7 @@ def train(cfg: TrainConfig) -> None:
     # Create Unique Run Name & Save Directory
     model_id = cfg.model.model_id
     data_id = cfg.json_dataset.dataset_id if use_json_dataset else cfg.rlds_data_mix
-    cfg.run_id = f"{data_id}+{model_id}+stage-{cfg.stage}+x{cfg.seed}" if cfg.run_id is None else cfg.run_id
+    cfg.run_id = f"{data_id}+{model_id}+{cfg.action_head_specifier}+stage-{cfg.stage}+x{cfg.seed}" if cfg.run_id is None else cfg.run_id
     cfg.run_id += f"--{cfg.run_id_note}"
     if cfg.image_aug:
         cfg.run_id += "--image_aug"
@@ -222,6 +222,7 @@ def train(cfg: TrainConfig) -> None:
         enable_mixed_precision_training=cfg.model.enable_mixed_precision_training,
         use_action_head=True,
         action_head_configs=action_head_configs,
+        seed=cfg.seed,
     )
 
     # [Validate] Model should be in Full Precision!
@@ -324,7 +325,7 @@ def train(cfg: TrainConfig) -> None:
             save_interval=cfg.save_interval,
             overwrite=cfg.overwrite,
             lm_loss_weight=cfg.lm_loss_weight,
-            action_l2_loss_weight=cfg.action_l2_loss_weight,
+            l2_loss_weight=cfg.l2_loss_weight,
         )
         
     else:
@@ -335,7 +336,7 @@ def train(cfg: TrainConfig) -> None:
             save_interval=cfg.save_interval,
             overwrite=cfg.overwrite,
             lm_loss_weight=cfg.lm_loss_weight,
-            action_l2_loss_weight=cfg.action_l2_loss_weight,
+            l2_loss_weight=cfg.l2_loss_weight,
         )
 
     # Finalize
