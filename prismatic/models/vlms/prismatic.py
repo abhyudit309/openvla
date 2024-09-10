@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from functools import partial
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Type, Union, Tuple
+from typing import Callable, Dict, List, Optional, Type, Union
 
 import torch
 from PIL import Image
@@ -26,7 +26,7 @@ from prismatic.models.backbones.vision import VisionBackbone
 from prismatic.models.vlms.base_vlm import VLM
 from prismatic.overwatch import initialize_overwatch
 from prismatic.util.nn_utils import FusedMLPProjector, LinearProjector, MLPProjector
-from prismatic.vla.action_head import LinearActionHead, MLPActionHead
+from prismatic.vla.action_head import LinearActionHead, MLPActionHead, DiffusionActionHead
 
 # Initialize Overwatch =>> Wraps `logging.Logger`
 overwatch = initialize_overwatch(__name__)
@@ -46,7 +46,7 @@ class PrismaticVLM(VLM):
         arch_specifier: str = "gelu-mlp",
         use_action_head: bool = False,
         action_head_configs: Optional[Dict] = None,
-        use_action_head_for_inference: bool = False,
+        seed: int = 7,
         **kwargs,
     ) -> None:
         super().__init__(
@@ -79,7 +79,6 @@ class PrismaticVLM(VLM):
         self.trainable_module_keys = []
 
         self.use_action_head = use_action_head
-        self.use_action_head_for_inference = use_action_head_for_inference
         if use_action_head:
             self.action_head_configs = action_head_configs
             assert action_head_configs, "Should specify config for action head is using it!"
@@ -88,7 +87,7 @@ class PrismaticVLM(VLM):
             num_map_heads = action_head_configs["num_map_heads"]
 
             # Initialize Action Head
-            if action_head_specifier == 'linear':
+            if action_head_specifier == "linear":
                 self.action_head = LinearActionHead(
                     llm_dim=llm_backbone.embed_dim, 
                     action_dim=7, 
@@ -103,6 +102,15 @@ class PrismaticVLM(VLM):
                     use_map=use_map,
                     num_map_heads=num_map_heads, 
                     mlp_type=action_head_specifier
+                )
+
+            elif action_head_specifier == "diffusion":
+                self.action_head = DiffusionActionHead(
+                    llm_dim=llm_backbone.embed_dim,
+                    action_dim=7,
+                    use_map=use_map,
+                    num_map_heads=num_map_heads,
+                    seed=seed,
                 )
             
             else:
@@ -411,7 +419,7 @@ class PrismaticVLM(VLM):
             # Module wrapping policy around `self.action_head`
             action_head_fsdp_wrapping_policy = partial(
                 _module_wrap_policy,
-                module_classes={LinearActionHead, MLPActionHead},
+                module_classes={LinearActionHead, MLPActionHead, DiffusionActionHead},
             )
 
             return partial(
@@ -453,7 +461,7 @@ class PrismaticVLM(VLM):
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
         multimodal_indices: Optional[torch.LongTensor] = None,
-    ) -> Union[CausalLMOutputWithPast, Tuple[CausalLMOutputWithPast, torch.Tensor]]:
+    ) -> CausalLMOutputWithPast:
         """Run a forward pass through the VLM, returning a CausalLMOutputWithPast instance (contains loss)."""
 
         # Handle Inference (leverage cache, short-circuit on just LLM forward)
@@ -468,16 +476,11 @@ class PrismaticVLM(VLM):
                 labels=None,
                 use_cache=use_cache,
                 output_attentions=output_attentions,
-                output_hidden_states=True if self.use_action_head else None,
+                output_hidden_states=output_hidden_states,
                 return_dict=return_dict,
             )
 
-            if self.use_action_head and not self.use_action_head_for_inference:
-                llm_last_layer_output = output.hidden_states[-1]
-                actions = self.action_head(llm_last_layer_output)
-                return output, actions
-            else:
-                return output
+            return output
 
         elif input_ids.shape[1] == 1 or pixel_values is None:
             raise RuntimeError("Invalid `forward()` call!")
@@ -497,16 +500,11 @@ class PrismaticVLM(VLM):
                 labels=labels,
                 use_cache=use_cache,
                 output_attentions=output_attentions,
-                output_hidden_states=True if self.use_action_head else None,
+                output_hidden_states=output_hidden_states,
                 return_dict=return_dict,
             )
 
-            if self.use_action_head and not self.use_action_head_for_inference:
-                llm_last_layer_output = output.hidden_states[-1]
-                actions = self.action_head(llm_last_layer_output)
-                return output, actions
-            else:
-                return output
+            return output
 
         # Run Visual Feature Extraction
         with torch.set_grad_enabled(self.vision_backbone_requires_grad):
@@ -620,21 +618,11 @@ class PrismaticVLM(VLM):
             labels=fused_labels,
             use_cache=use_cache,
             output_attentions=output_attentions,
-            output_hidden_states=True if self.use_action_head else None,
+            output_hidden_states=output_hidden_states,
             return_dict=return_dict,
         )
 
-        # => Note: If using the action head (PrismaticVLA) for training, 'forward'
-        # should return both output and actions. If using the action head for inference,
-        # it should just return the llm output to ensure compatibility with 'generate'.
-        # In that case, actions are computed explicitly by passing the last layer output
-        # through the action head outside 'forward'.
-        if self.use_action_head and not self.use_action_head_for_inference:
-            llm_last_layer_output = output.hidden_states[-1]
-            actions = self.action_head(llm_last_layer_output)
-            return output, actions
-        else:
-            return output
+        return output
 
     # === GenerationMixin Methods ===
     #   => Note: The following methods override the functionality of `transformers.GenerationMixin`; these expect the

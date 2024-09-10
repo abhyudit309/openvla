@@ -139,6 +139,7 @@ def get_vlm(
     enable_mixed_precision_training: bool = True,
     use_action_head: bool = False,
     action_head_configs: Optional[Dict] = None,
+    seed: int = 7,
 ) -> PrismaticVLM:
     """Lightweight wrapper around initializing a VLM, mostly for future-proofing (if one wants to add a new VLM)."""
     return PrismaticVLM(
@@ -149,4 +150,5 @@ def get_vlm(
         arch_specifier=arch_specifier,
         use_action_head=use_action_head,
         action_head_configs=action_head_configs,
+        seed=seed,
     )
