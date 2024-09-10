@@ -6,10 +6,11 @@ Action head that produces actions from the output of the LLM backbone.
 
 from typing import Optional
 
+import numpy as np
 import torch
 import torch.nn as nn
 
-from diffusion import cosine_beta_schedule, create_diffusion_model
+from .diffusion import cosine_beta_schedule, create_diffusion_model
 
 
 # === Definitions for Various Action Heads === #
@@ -36,7 +37,12 @@ class LinearActionHead(nn.Module):
             pooled_output = llm_output.mean(dim=1)
 
         return self.action_head(pooled_output)
-        
+
+    def predict_action(self, llm_output: torch.Tensor) -> np.ndarray:
+        assert llm_output.shape[0] == 1
+        pred_actions = self(llm_output)
+        return pred_actions[0].to(dtype=torch.float32).cpu().numpy()
+
 
 class MLPActionHead(nn.Module):
     def __init__(
@@ -76,11 +82,17 @@ class MLPActionHead(nn.Module):
 
         return self.action_head(pooled_output)
 
+    def predict_action(self, llm_output: torch.Tensor) -> np.ndarray:
+        assert llm_output.shape[0] == 1
+        pred_actions = self(llm_output)
+        return pred_actions[0].to(dtype=torch.float32).cpu().numpy()
+
 
 class DiffusionActionHead(nn.Module):
     def __init__(
             self,
             llm_dim: int,
+            action_dim: int,
             time_dim: int = 32,
             num_blocks: int = 3,
             hidden_dim: int = 256,
@@ -89,8 +101,11 @@ class DiffusionActionHead(nn.Module):
             n_diffusion_samples: int = 1,
             use_map: bool = True,
             num_map_heads: Optional[int] = None,
+            seed: int = 7,
         ) -> None:
+        super().__init__()
 
+        self.action_dim = action_dim
         self.diffusion_steps = diffusion_steps
         self.n_diffusion_samples = n_diffusion_samples
         self.use_map = use_map
@@ -102,7 +117,7 @@ class DiffusionActionHead(nn.Module):
         # create the diffusion model (score network)
         self.diffusion_model = create_diffusion_model(
             llm_dim=llm_dim,
-            out_dim=7,
+            out_dim=action_dim,
             time_dim=time_dim,
             num_blocks=num_blocks,
             hidden_dim=hidden_dim,
@@ -110,9 +125,11 @@ class DiffusionActionHead(nn.Module):
         )
 
         # create beta schedule
-        self.betas = torch.tensor(cosine_beta_schedule(diffusion_steps), dtype=torch.float32)
+        self.betas = torch.tensor(cosine_beta_schedule(diffusion_steps), dtype=torch.bfloat16, device='cuda')
         self.alphas = 1.0 - self.betas
         self.alpha_hats = torch.cumprod(self.alphas, dim=0)
+
+        self.rng = torch.Generator(device='cuda').manual_seed(seed)
 
     def forward(
             self, 
@@ -131,59 +148,37 @@ class DiffusionActionHead(nn.Module):
             if not self.training:
                 raise ValueError("Must provide time and noisy_actions when calling diffusion action head")
             else:
-                time = torch.zeros((pooled_output.shape[0], 1), dtype=torch.float32)
-                noisy_actions = torch.zeros((pooled_output.shape[0], 7), dtype=torch.float32)
+                time = torch.zeros((pooled_output.shape[0], 1), dtype=torch.bfloat16)
+                noisy_actions = torch.zeros((pooled_output.shape[0], self.action_dim), dtype=torch.bfloat16)
 
         pred_eps = self.diffusion_model(pooled_output, noisy_actions, time)
         return pred_eps
 
-    def loss(self, llm_output: torch.Tensor, gt_actions: torch.Tensor, seed: int) -> torch.Tensor:
-        """
-        Computes the loss for the diffusion objective.
-        """
-        batch_size = llm_output.shape[0]
-
-        # Generate random time and noise
-        rng = torch.Generator().manual_seed(seed)
-        time = torch.randint(0, self.diffusion_steps, (self.n_diffusion_samples, batch_size, 1), generator=rng)
-        noise = torch.randn((self.n_diffusion_samples, batch_size, 7), generator=rng)
-
-        # Add noise to the action according to the schedule
-        scale = torch.sqrt(self.alpha_hats[time])
-        std = torch.sqrt(1 - self.alpha_hats[time])
-        noisy_actions = scale * gt_actions.unsqueeze(0) + std * noise
-
-        pred_eps = self(llm_output, time=time, noisy_actions=noisy_actions)
-        loss = torch.nn.functional.mse_loss(pred_eps, noise)
-
-        return loss
-
-    def predict_action(self, llm_output: torch.Tensor, seed: int = 7):
-        rng = torch.Generator().manual_seed(seed)
+    def predict_action(self, llm_output: torch.Tensor) -> np.ndarray:
         batch_size = llm_output.shape[0]
         assert batch_size == 1
 
         def scan_fn(current_x: torch.Tensor, time: torch.Tensor):
-            input_time = time.expand(size=(batch_size, 1))
+            input_time = time.expand(size=(batch_size, 1)).to(dtype=torch.bfloat16)
 
-            eps_pred = self(llm_output, time=input_time, noisy_actions=current_x)
+            pred_eps = self(llm_output, time=input_time, noisy_actions=current_x)
 
             alpha_1 = 1.0 / torch.sqrt(self.alphas[time])
             alpha_2 = (1.0 - self.alphas[time]) / (torch.sqrt(1.0 - self.alpha_hats[time]))
-            current_x = alpha_1 * (current_x - alpha_2 * eps_pred)
+            current_x = alpha_1 * (current_x - alpha_2 * pred_eps)
 
-            z = torch.randn(size=current_x.shape, generator=rng)
+            z = torch.randn(size=current_x.shape, generator=self.rng, device='cuda', dtype=torch.bfloat16)
             current_x = current_x + (time > 0) * (torch.sqrt(self.betas[time]) * z)
 
             return current_x
 
-        noise = torch.randn(size=(batch_size, 7), generator=rng)
+        noise = torch.randn(size=(batch_size, self.action_dim), generator=self.rng, device='cuda', dtype=torch.bfloat16)
         actions = noise
 
         for t in reversed(range(self.diffusion_steps)):
-            actions = scan_fn(actions, torch.tensor(t, dtype=torch.long))
+            actions = scan_fn(actions, torch.tensor(t, dtype=torch.long, device='cuda'))
 
-        return actions[0]
+        return actions[0].to(dtype=torch.float32).cpu().numpy()
 
 
 # === Definitions for Multi-Head Attention Pooling === #

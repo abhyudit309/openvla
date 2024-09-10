@@ -6,7 +6,7 @@ import torch.nn.functional as F
 import numpy as np
 
 
-def cosine_beta_schedule(timesteps: int, s: float = 0.008):
+def cosine_beta_schedule(timesteps: int, s: float = 0.008) -> np.ndarray:
     """
     cosine schedule
     as proposed in https://openreview.net/forum?id=-NEXDKk8gZ
@@ -45,7 +45,6 @@ class MLP(nn.Module):
             self,
             input_dim: int,
             hidden_dims: Sequence[int], 
-            activation: Callable = F.silu,
             activate_final: bool = False, 
             use_layer_norm: bool = False,
         ):
@@ -59,7 +58,7 @@ class MLP(nn.Module):
             if i + 1 < len(hidden_dims) or activate_final:
                 if use_layer_norm:
                     self.layers.append(nn.LayerNorm(size))
-                self.layers.append(activation)
+                self.layers.append(nn.SiLU())
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         assert x.shape[-1] == self.input_dim
