@@ -170,6 +170,7 @@ class DiffusionActionHead(nn.Module):
             z = torch.randn(size=current_x.shape, generator=self.rng, device='cuda', dtype=torch.bfloat16)
             current_x = current_x + (time > 0) * (torch.sqrt(self.betas[time]) * z)
 
+            current_x = torch.clamp(current_x, min=-1.0, max=1.0)
             return current_x
 
         noise = torch.randn(size=(batch_size, self.action_dim), generator=self.rng, device='cuda', dtype=torch.bfloat16)
