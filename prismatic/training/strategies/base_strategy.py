@@ -464,11 +464,17 @@ class TrainingStrategy(ABC):
                         output_hidden_states=True,
                     )
 
-                    llm_last_layer_output = output.hidden_states[-1]
-                    gt_actions = batch["actions"].to(llm_last_layer_output.device)
+                    if self.vlm.use_layer_output_pooler:
+                        all_hidden_layer_outputs = torch.stack(output.hidden_states, dim=2)
+                        pooled_hidden_states = self.vlm.layer_output_pooler(all_hidden_layer_outputs)
+                    else:
+                        # We just consider the last layer output
+                        pooled_hidden_states = output.hidden_states[-1]
+
+                    gt_actions = batch["actions"].to(pooled_hidden_states.device)
 
                     if using_diffusion_action_head:
-                        batch_size = llm_last_layer_output.shape[0]
+                        batch_size = pooled_hidden_states.shape[0]
 
                         # Generate random time and noise
                         time = torch.randint(
@@ -476,13 +482,13 @@ class TrainingStrategy(ABC):
                             self.vlm.action_head.diffusion_steps,
                             (self.vlm.action_head.n_diffusion_samples, batch_size, 1),
                             generator=self.vlm.action_head.rng,
-                            device=llm_last_layer_output.device,
+                            device=pooled_hidden_states.device,
                         )
 
                         noise = torch.randn(
                             (self.vlm.action_head.n_diffusion_samples, batch_size, 7), 
                             generator=self.vlm.action_head.rng,
-                            device=llm_last_layer_output.device,
+                            device=pooled_hidden_states.device,
                         )
 
                         # Add noise to the action according to the schedule
@@ -490,12 +496,12 @@ class TrainingStrategy(ABC):
                         std = torch.sqrt(1 - self.vlm.action_head.alpha_hats[time])
                         noisy_actions = scale * gt_actions.unsqueeze(0) + std * noise
 
-                        pred_eps = self.vlm.action_head(llm_last_layer_output, time=time, noisy_actions=noisy_actions)
+                        pred_eps = self.vlm.action_head(pooled_hidden_states, time=time, noisy_actions=noisy_actions)
                         l1_loss = torch.nn.functional.l1_loss(pred_eps, noise)
                         l2_loss = torch.nn.functional.mse_loss(pred_eps, noise)
 
                     else:
-                        pred_actions = self.vlm.action_head(llm_last_layer_output)
+                        pred_actions = self.vlm.action_head(pooled_hidden_states)
                         l1_loss = torch.nn.functional.l1_loss(pred_actions, gt_actions)
                         l2_loss = torch.nn.functional.mse_loss(pred_actions, gt_actions)
 
@@ -678,11 +684,17 @@ class TrainingStrategy(ABC):
                             output_hidden_states=True,
                         )
 
-                        llm_last_layer_output = output.hidden_states[-1]
-                        gt_actions = batch["actions"].to(llm_last_layer_output.device)
+                        if self.vlm.use_layer_output_pooler:
+                            all_hidden_layer_outputs = torch.stack(output.hidden_states, dim=2)
+                            pooled_hidden_states = self.vlm.layer_output_pooler(all_hidden_layer_outputs)
+                        else:
+                            # We just consider the last layer output
+                            pooled_hidden_states = output.hidden_states[-1]
+
+                        gt_actions = batch["actions"].to(pooled_hidden_states.device)
 
                         if using_diffusion_action_head:
-                            batch_size = llm_last_layer_output.shape[0]
+                            batch_size = pooled_hidden_states.shape[0]
 
                             # Generate random time and noise
                             time = torch.randint(
@@ -690,13 +702,13 @@ class TrainingStrategy(ABC):
                                 self.vlm.action_head.diffusion_steps,
                                 (self.vlm.action_head.n_diffusion_samples, batch_size, 1),
                                 generator=self.vlm.action_head.rng,
-                                device=llm_last_layer_output.device,
+                                device=pooled_hidden_states.device,
                             )
 
                             noise = torch.randn(
                                 (self.vlm.action_head.n_diffusion_samples, batch_size, 7), 
                                 generator=self.vlm.action_head.rng,
-                                device=llm_last_layer_output.device,
+                                device=pooled_hidden_states.device,
                             )
 
                             # Add noise to the action according to the schedule
@@ -704,12 +716,12 @@ class TrainingStrategy(ABC):
                             std = torch.sqrt(1 - self.vlm.action_head.alpha_hats[time])
                             noisy_actions = scale * gt_actions.unsqueeze(0) + std * noise
 
-                            pred_eps = self.vlm.action_head(llm_last_layer_output, time=time, noisy_actions=noisy_actions)
+                            pred_eps = self.vlm.action_head(pooled_hidden_states, time=time, noisy_actions=noisy_actions)
                             l1_loss = torch.nn.functional.l1_loss(pred_eps, noise)
                             l2_loss = torch.nn.functional.mse_loss(pred_eps, noise)
 
                         else:
-                            pred_actions = self.vlm.action_head(llm_last_layer_output)
+                            pred_actions = self.vlm.action_head(pooled_hidden_states)
                             l1_loss = torch.nn.functional.l1_loss(pred_actions, gt_actions)
                             l2_loss = torch.nn.functional.mse_loss(pred_actions, gt_actions)
 

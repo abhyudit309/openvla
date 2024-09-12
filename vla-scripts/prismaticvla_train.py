@@ -108,6 +108,9 @@ class TrainConfig:
     lm_loss_weight: float = 0.5                                     # Weight for language modeling loss
     l2_loss_weight: float = 0.5                                     # Weight for L2 loss
 
+    # Additional params
+    use_layer_output_pooler: bool = False                           # If True, we process the outputs of all hidden layers by pooling them before sending to the action head. Otherwise, we just send the last hidden layer output.
+
     def __post_init__(self) -> None:
         """Set optimization parameters based on `stage` in {"align", "finetune"}."""
         if self.stage == "align":
@@ -160,6 +163,12 @@ def train(cfg: TrainConfig) -> None:
     # Create Unique Run Name & Save Directory
     model_id = cfg.model.model_id
     data_id = cfg.json_dataset.dataset_id if use_json_dataset else cfg.rlds_data_mix
+
+    if cfg.randomize_qnas:
+        data_id += "+r_qnas"
+    if cfg.use_layer_output_pooler:
+        model_id += "+lop"
+
     cfg.run_id = f"{data_id}+{model_id}+{cfg.action_head_specifier}+stage-{cfg.stage}+x{cfg.seed}" if cfg.run_id is None else cfg.run_id
     cfg.run_id += f"--{cfg.run_id_note}"
     if cfg.image_aug:
@@ -221,6 +230,7 @@ def train(cfg: TrainConfig) -> None:
         vision_backbone,
         llm_backbone,
         enable_mixed_precision_training=cfg.model.enable_mixed_precision_training,
+        use_layer_output_pooler=cfg.use_layer_output_pooler,
         use_action_head=True,
         action_head_configs=action_head_configs,
         seed=cfg.seed,
