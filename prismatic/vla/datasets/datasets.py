@@ -429,12 +429,14 @@ class RLDSQnAJSONDataset(Dataset[Dict[str, torch.Tensor]]):
         prompt_builder_fn: Type[PromptBuilder],
         train_val_split_3qna: Optional[float],
         train_val_split_multi_qna: Optional[float],
+        randomize_qnas: bool,
     ) -> None:
         super().__init__()
         self.instruct_json, self.image_dir = instruct_json, image_dir
         self.image_transform, self.tokenizer = image_transform, tokenizer
         self.prompt_builder_fn = prompt_builder_fn
         self.dataset_type = "finetune"
+        self.randomize_qnas = randomize_qnas
 
         # Load Instruct JSON
         with open(self.instruct_json, "r") as f:
@@ -477,17 +479,22 @@ class RLDSQnAJSONDataset(Dataset[Dict[str, torch.Tensor]]):
         """
         conversation = self.examples[idx]["conversations"]
 
+        if self.randomize_qnas:
+            qa_pairs = [(conversation[i], conversation[i + 1]) for i in range(0, len(conversation), 2)]
+            random.shuffle(qa_pairs)
+
+            conversation = [item for qa_pair in qa_pairs for item in qa_pair]
+
         # Create Prompt Builder --> add each message sequentially
         prompt_builder, input_ids, labels = self.prompt_builder_fn(model_family="openvla"), [], []
+        action = None
         for turn_idx, turn in enumerate(conversation):
             # Get "effective" string added to prompt --> handle whitespace for tokenizer type!
             msg = prompt_builder.add_turn(turn["from"], turn["value"])
 
             # Extract ground truth action from the answer
-            if turn_idx == 1:
-                answer_with_action: str = turn["value"]
-                assert answer_with_action.startswith("The next action for the end-effector"), "The first answer should contain the ground truth action!"
-                action = get_7d_action_from_answer(answer_with_action)
+            if turn["value"].startswith("The next action for the end-effector is:"):
+                action = get_7d_action_from_answer(turn["value"])
             
             # Llama Tokenizer (Fast) adds extra character if a string ends in whitespace --> strip if non-empty!
             if isinstance(self.tokenizer, LlamaTokenizerFast):
@@ -524,6 +531,8 @@ class RLDSQnAJSONDataset(Dataset[Dict[str, torch.Tensor]]):
         # Tensorize =>> Set the <BOS> token's label to IGNORE_INDEX (since we're inserting the image patches after)
         #   - IMPORTANT => IF WE'RE USING HF LLM.forward(... labels=labels), SHIFTING HAPPENS _INSIDE_ MODEL!
         input_ids, labels = torch.tensor(input_ids), torch.tensor(labels)
+
+        assert action is not None, "Should find ground truth action in the answers!"
         action = torch.tensor(action, dtype=torch.bfloat16)
 
         # Handle Truncation (if necessary)

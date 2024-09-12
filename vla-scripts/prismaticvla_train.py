@@ -57,6 +57,7 @@ class TrainConfig:
     # Additional Parameters (should pass them if using JSON dataset -> above)
     train_val_split_3qna: Optional[float] = 0.01                    # Training-validation split for conversations in RLDS Open-X datasets with 3 QnAs
     train_val_split_multi_qna: Optional[float] = 0.9                # Training-validation split for conversations in RLDS Open-X datasets with more than 3 QnAs
+    randomize_qnas: bool = True                                     # Whether to randomize the order of question-answers for an image
 
     # RLDS Directory Paths
     # Specify this, if you want to train on a dataset in RLDS format, with added QnA pairs
@@ -255,7 +256,8 @@ def train(cfg: TrainConfig) -> None:
             prompt_builder_fn=llm_backbone.prompt_builder_fn,
             padding_side=tokenizer.padding_side,
             train_val_split_3qna=cfg.train_val_split_3qna,
-            train_val_split_multi_qna=cfg.train_val_split_multi_qna
+            train_val_split_multi_qna=cfg.train_val_split_multi_qna,
+            randomize_qnas=cfg.randomize_qnas,
         )
         n_train_examples = len(prismatic_vla_json_dataset)
 

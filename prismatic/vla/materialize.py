@@ -109,6 +109,7 @@ def get_prismatic_vla_json_dataset_and_collator(
     padding_side: str = "right",
     train_val_split_3qna: Optional[float] = None,
     train_val_split_multi_qna: Optional[float] = None,
+    randomize_qnas: bool = False,
 ) -> Tuple[Dataset, PaddedCollatorForLanguageModelingAndActionPrediction]:
     assert stage == "lora-finetune", f"Stage `{stage}` is not supported!"
 
@@ -126,5 +127,6 @@ def get_prismatic_vla_json_dataset_and_collator(
         prompt_builder_fn=prompt_builder_fn,
         train_val_split_3qna=train_val_split_3qna,
         train_val_split_multi_qna=train_val_split_multi_qna,
+        randomize_qnas=randomize_qnas,
     )
     return dataset, collator
