@@ -27,6 +27,7 @@ class PrismaticVLA(PrismaticVLM):
         llm_backbone: LLMBackbone,
         enable_mixed_precision_training: bool = True,
         arch_specifier: str = "gelu-mlp",
+        use_layer_output_pooler: bool = False,
         use_action_head: bool = True,
         action_head_configs: Optional[Dict] = None,
         use_action_head_for_inference: bool = False,
@@ -38,6 +39,7 @@ class PrismaticVLA(PrismaticVLM):
             llm_backbone=llm_backbone,
             enable_mixed_precision_training=enable_mixed_precision_training,
             arch_specifier=arch_specifier,
+            use_layer_output_pooler=use_layer_output_pooler,
             use_action_head=use_action_head,
             action_head_configs=action_head_configs,
             use_action_head_for_inference=use_action_head_for_inference,
@@ -94,8 +96,14 @@ class PrismaticVLA(PrismaticVLM):
         # text (time step = 0), and NOT the response!
         actions = None
         if return_action:
-            llm_last_layer_output = output.hidden_states[0][-1]
-            actions = self.action_head.predict_action(llm_output=llm_last_layer_output)
+            if self.use_layer_output_pooler:
+                all_hidden_layer_outputs = torch.stack(output.hidden_states[0], dim=2)
+                pooled_hidden_states = self.layer_output_pooler(all_hidden_layer_outputs)
+            else:
+                # We just consider the last layer output
+                pooled_hidden_states = output.hidden_states[0][-1]
+
+            actions = self.action_head.predict_action(llm_output=pooled_hidden_states)
 
             # TODO: Unnormalizing actions (if applicable!)
 
