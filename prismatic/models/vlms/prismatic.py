@@ -26,6 +26,7 @@ from prismatic.models.backbones.vision import VisionBackbone
 from prismatic.models.vlms.base_vlm import VLM
 from prismatic.overwatch import initialize_overwatch
 from prismatic.util.nn_utils import FusedMLPProjector, LinearProjector, MLPProjector
+from prismatic.vla.layer_output_pooler import LayerOutputPooler
 from prismatic.vla.action_head import LinearActionHead, MLPActionHead, DiffusionActionHead
 
 # Initialize Overwatch =>> Wraps `logging.Logger`
@@ -44,6 +45,7 @@ class PrismaticVLM(VLM):
         llm_backbone: LLMBackbone,
         enable_mixed_precision_training: bool = True,
         arch_specifier: str = "gelu-mlp",
+        use_layer_output_pooler: bool = False,
         use_action_head: bool = False,
         action_head_configs: Optional[Dict] = None,
         seed: int = 7,
@@ -77,6 +79,15 @@ class PrismaticVLM(VLM):
         # Set Module Keys =>> used in Checkpoint Saving / Model Loading
         self.all_module_keys = ["vision_backbone", "llm_backbone", "projector"]
         self.trainable_module_keys = []
+
+        self.use_layer_output_pooler = use_layer_output_pooler
+        if use_layer_output_pooler:
+            self.layer_output_pooler = LayerOutputPooler(
+                llm_dim=llm_backbone.embed_dim,
+                num_heads=8,
+            )
+
+            self.all_module_keys.append("layer_output_pooler")
 
         self.use_action_head = use_action_head
         if use_action_head:
@@ -159,6 +170,10 @@ class PrismaticVLM(VLM):
         if "vision_backbone" in model_state_dict.keys():
             vlm.vision_backbone.load_state_dict(model_state_dict["vision_backbone"])
 
+        if "layer_output_pooler" in model_state_dict.keys():
+            assert vlm.use_layer_output_pooler
+            vlm.layer_output_pooler.load_state_dict(model_state_dict["layer_output_pooler"])
+
         if "action_head" in model_state_dict.keys():
             assert vlm.use_action_head
             vlm.action_head.load_state_dict(model_state_dict["action_head"])
@@ -209,6 +224,10 @@ class PrismaticVLM(VLM):
 
         if "vision_backbone" in model_state_dict.keys():
             vlm.vision_backbone.load_state_dict(model_state_dict["vision_backbone"])
+
+        if "layer_output_pooler" in model_state_dict.keys():
+            assert vlm.use_layer_output_pooler
+            vlm.layer_output_pooler.load_state_dict(model_state_dict["layer_output_pooler"])
 
         if "action_head" in model_state_dict.keys():
             assert vlm.use_action_head
@@ -348,6 +367,12 @@ class PrismaticVLM(VLM):
         else:
             raise ValueError(f"Stage `{stage}` is not supported for LLaVa! Try < align | finetune >")
 
+        if self.use_layer_output_pooler:
+            # We always train the layer output pooler
+            self.layer_output_pooler.requires_grad_(True)
+            self.trainable_module_keys.append("layer_output_pooler")
+            overwatch.info(f"[TRAINABLE] 🔥 =>> Layer Output Pooler", ctx_level=1)
+        
         if self.use_action_head:
             # We always train the action head
             self.action_head.requires_grad_(True)
@@ -415,6 +440,22 @@ class PrismaticVLM(VLM):
             module_classes={LinearProjector, MLPProjector, FusedMLPProjector},
         )
 
+        policies = [
+            vision_fsdp_wrapping_policy, 
+            llm_fsdp_wrapping_policy, 
+            prismatic_fsdp_wrapping_policy,
+        ]
+
+        if self.use_layer_output_pooler:
+            # Module wrapping policy around `self.layer_output_pooler`
+            layer_output_pooler_fsdp_wrapping_policy = partial(
+                _module_wrap_policy,
+                module_classes={LayerOutputPooler},
+            )
+
+            policies.append(layer_output_pooler_fsdp_wrapping_policy)
+
+
         if self.use_action_head:
             # Module wrapping policy around `self.action_head`
             action_head_fsdp_wrapping_policy = partial(
@@ -422,26 +463,14 @@ class PrismaticVLM(VLM):
                 module_classes={LinearActionHead, MLPActionHead, DiffusionActionHead},
             )
 
-            return partial(
-                _or_policy,
-                policies=[
-                    vision_fsdp_wrapping_policy,
-                    llm_fsdp_wrapping_policy,
-                    prismatic_fsdp_wrapping_policy,
-                    action_head_fsdp_wrapping_policy
-                ],
-            )
+            policies.append(action_head_fsdp_wrapping_policy)
 
         # Return union (_or_) over constituent policies
         #   => Note: there is *not* a fall-through policy; any module that isn't covered by the above constituents will
         #            automatically be folded into the root VLM FSDP instance.
         return partial(
             _or_policy,
-            policies=[
-                vision_fsdp_wrapping_policy,
-                llm_fsdp_wrapping_policy,
-                prismatic_fsdp_wrapping_policy,
-            ],
+            policies=policies,
         )
 
     # Note =>> We're not explicitly subclassing `PreTrainedModel` because we don't need the bloat; however, `forward()`
