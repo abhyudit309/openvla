@@ -84,7 +84,7 @@ class PrismaticVLM(VLM):
         if use_layer_output_pooler:
             self.layer_output_pooler = LayerOutputPooler(
                 llm_dim=llm_backbone.embed_dim,
-                num_heads=8,
+                num_heads=4,
             )
 
             self.all_module_keys.append("layer_output_pooler")

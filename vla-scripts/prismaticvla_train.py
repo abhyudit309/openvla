@@ -100,7 +100,7 @@ class TrainConfig:
     lora_target_modules = ["q_proj", "k_proj", "v_proj", "o_proj"]  # LoRA target modules
 
     # Action Head Arguments
-    action_head_specifier: str = "diffusion"                        # Action Head Specifier (can be 'linear', 'relu', 'gelu', or 'diffusion')
+    action_head_specifier: str = "gelu"                             # Action Head Specifier (can be 'linear', 'relu', 'gelu', or 'diffusion')
     use_map: bool = True                                            # Whether to use Multi-head attention pooling, or mean pooling across sequence dimension
     num_map_heads: int = 8                                          # Number of attention heads (if using MAP)
 
@@ -109,7 +109,7 @@ class TrainConfig:
     l2_loss_weight: float = 0.5                                     # Weight for L2 loss
 
     # Additional params
-    use_layer_output_pooler: bool = False                           # If True, we process the outputs of all hidden layers by pooling them before sending to the action head. Otherwise, we just send the last hidden layer output.
+    use_layer_output_pooler: bool = True                            # If True, we process the outputs of all hidden layers by pooling them before sending to the action head. Otherwise, we just send the last hidden layer output.
 
     def __post_init__(self) -> None:
         """Set optimization parameters based on `stage` in {"align", "finetune"}."""

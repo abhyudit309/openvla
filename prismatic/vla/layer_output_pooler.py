@@ -13,7 +13,7 @@ import torch.nn as nn
 class MLPBlock(nn.Module):
     def __init__(self, llm_dim: int, mlp_dim: Optional[int] = None) -> None:
         super().__init__()
-        self.mlp_dim = mlp_dim if mlp_dim is not None else 4 * llm_dim
+        self.mlp_dim = mlp_dim if mlp_dim is not None else 2 * llm_dim
 
         self.mlp_block = nn.Sequential(
             nn.Linear(llm_dim, self.mlp_dim, bias=True),
