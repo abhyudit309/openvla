@@ -110,6 +110,8 @@ class TrainConfig:
 
     # Additional params
     use_layer_output_pooler: bool = True                            # If True, we process the outputs of all hidden layers by pooling them before sending to the action head. Otherwise, we just send the last hidden layer output.
+    lop_mlp_type: str = "linear"                                    # MLP type in the Layer output pooler (can be 'linear', 'relu', or 'gelu')
+    lop_num_map_heads: int = 4                                      # Number of attention heads in the Layer output pooler
 
     def __post_init__(self) -> None:
         """Set optimization parameters based on `stage` in {"align", "finetune"}."""
@@ -224,6 +226,15 @@ def train(cfg: TrainConfig) -> None:
         "use_map": cfg.use_map,
         "num_map_heads": cfg.num_map_heads,
     }
+
+    layer_output_pooler_configs = None
+    if cfg.use_layer_output_pooler:
+        layer_output_pooler_configs = {
+            "lop_mlp_type": cfg.lop_mlp_type,
+            "lop_num_map_heads": cfg.lop_num_map_heads,
+        }
+
+
     vlm = get_vlm(
         model_id,
         cfg.model.arch_specifier,
@@ -231,6 +242,7 @@ def train(cfg: TrainConfig) -> None:
         llm_backbone,
         enable_mixed_precision_training=cfg.model.enable_mixed_precision_training,
         use_layer_output_pooler=cfg.use_layer_output_pooler,
+        layer_output_pooler_configs=layer_output_pooler_configs,
         use_action_head=True,
         action_head_configs=action_head_configs,
         seed=cfg.seed,

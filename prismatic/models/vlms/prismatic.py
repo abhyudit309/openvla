@@ -46,6 +46,7 @@ class PrismaticVLM(VLM):
         enable_mixed_precision_training: bool = True,
         arch_specifier: str = "gelu-mlp",
         use_layer_output_pooler: bool = False,
+        layer_output_pooler_configs: Optional[Dict] = None,
         use_action_head: bool = False,
         action_head_configs: Optional[Dict] = None,
         seed: int = 7,
@@ -82,9 +83,16 @@ class PrismaticVLM(VLM):
 
         self.use_layer_output_pooler = use_layer_output_pooler
         if use_layer_output_pooler:
+            self.layer_output_pooler_configs = layer_output_pooler_configs
+            assert layer_output_pooler_configs, "Should specify config for layer output pooler if using it!"
+
+            lop_mlp_type = layer_output_pooler_configs["lop_mlp_type"]
+            lop_num_map_heads = layer_output_pooler_configs["lop_num_map_heads"]
+            
             self.layer_output_pooler = LayerOutputPooler(
                 llm_dim=llm_backbone.embed_dim,
-                num_heads=4,
+                num_heads=lop_num_map_heads,
+                mlp_type=lop_mlp_type,
             )
 
             self.all_module_keys.append("layer_output_pooler")
@@ -92,7 +100,8 @@ class PrismaticVLM(VLM):
         self.use_action_head = use_action_head
         if use_action_head:
             self.action_head_configs = action_head_configs
-            assert action_head_configs, "Should specify config for action head is using it!"
+            assert action_head_configs, "Should specify config for action head if using it!"
+
             action_head_specifier = action_head_configs["action_head_specifier"]
             use_map = action_head_configs["use_map"]
             num_map_heads = action_head_configs["num_map_heads"]
@@ -371,7 +380,8 @@ class PrismaticVLM(VLM):
             # We always train the layer output pooler
             self.layer_output_pooler.requires_grad_(True)
             self.trainable_module_keys.append("layer_output_pooler")
-            overwatch.info(f"[TRAINABLE] 🔥 =>> Layer Output Pooler", ctx_level=1)
+            lop_mlp_type = self.layer_output_pooler_configs["lop_mlp_type"]
+            overwatch.info(f"[TRAINABLE] 🔥 =>> Layer Output Pooler `{lop_mlp_type}`", ctx_level=1)
         
         if self.use_action_head:
             # We always train the action head

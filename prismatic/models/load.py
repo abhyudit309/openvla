@@ -277,17 +277,31 @@ def load_prismatic_vla(
 
     # = Load Individual Components necessary for Instantiating a PrismaticVLA =
     #   =>> Print Minimal Config
-    overwatch.info(
-        f"Found Config =>> Loading & Freezing [bold blue]{model_cfg['model_id']}[/] with:\n"
-        f"             Vision Backbone =>> [bold]{model_cfg['vision_backbone_id']}[/]\n"
-        f"             LLM Backbone    =>> [bold]{model_cfg['llm_backbone_id']}[/]\n"
-        f"             Action Head     =>> [bold]{action_head_configs['action_head_specifier']}[/]\n"
-        f"             Arch Specifier  =>> [bold]{model_cfg['arch_specifier']}[/]\n"
-        f"             Checkpoint Path =>> [underline]`{checkpoint_pt}`[/]"
-    )
-
+    layer_output_pooler_configs = None
     if cfg["use_layer_output_pooler"]:
-        overwatch.info("Also found [bold blue]Layer Output Pooler[/]!")
+        layer_output_pooler_configs = {
+            "lop_mlp_type": cfg["lop_mlp_type"],
+            "lop_num_map_heads": cfg["lop_num_map_heads"],
+        }
+        overwatch.info(
+            f"Found Config =>> Loading & Freezing [bold blue]{model_cfg['model_id']}[/] with:\n"
+            f"             Vision Backbone     =>> [bold]{model_cfg['vision_backbone_id']}[/]\n"
+            f"             LLM Backbone        =>> [bold]{model_cfg['llm_backbone_id']}[/]\n"
+            f"             Layer Output Pooler =>> [bold]{layer_output_pooler_configs['lop_mlp_type']}[/]\n"
+            f"             Action Head         =>> [bold]{action_head_configs['action_head_specifier']}[/]\n"
+            f"             Arch Specifier      =>> [bold]{model_cfg['arch_specifier']}[/]\n"
+            f"             Checkpoint Path     =>> [underline]`{checkpoint_pt}`[/]"
+        )
+    
+    else:
+        overwatch.info(
+            f"Found Config =>> Loading & Freezing [bold blue]{model_cfg['model_id']}[/] with:\n"
+            f"             Vision Backbone =>> [bold]{model_cfg['vision_backbone_id']}[/]\n"
+            f"             LLM Backbone    =>> [bold]{model_cfg['llm_backbone_id']}[/]\n"
+            f"             Action Head     =>> [bold]{action_head_configs['action_head_specifier']}[/]\n"
+            f"             Arch Specifier  =>> [bold]{model_cfg['arch_specifier']}[/]\n"
+            f"             Checkpoint Path =>> [underline]`{checkpoint_pt}`[/]"
+        )
 
     # Load Vision Backbone
     overwatch.info(f"Loading Vision Backbone [bold]{model_cfg['vision_backbone_id']}[/]")
@@ -315,6 +329,7 @@ def load_prismatic_vla(
         arch_specifier=model_cfg["arch_specifier"],
         freeze_weights=not load_for_training,
         use_layer_output_pooler=cfg["use_layer_output_pooler"],
+        layer_output_pooler_configs=layer_output_pooler_configs,
         use_action_head=True,
         action_head_configs=action_head_configs,
     )

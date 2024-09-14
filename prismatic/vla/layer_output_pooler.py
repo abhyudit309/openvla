@@ -11,22 +11,42 @@ import torch.nn as nn
 
 
 class MLPBlock(nn.Module):
-    def __init__(self, llm_dim: int, mlp_dim: Optional[int] = None) -> None:
+    def __init__(self, llm_dim: int, mlp_dim: Optional[int], mlp_type: str) -> None:
         super().__init__()
-        self.mlp_dim = mlp_dim if mlp_dim is not None else 2 * llm_dim
+        self.mlp_dim = mlp_dim if mlp_dim is not None else 4 * llm_dim
 
-        self.mlp_block = nn.Sequential(
-            nn.Linear(llm_dim, self.mlp_dim, bias=True),
-            nn.GELU(),
-            nn.Linear(self.mlp_dim, llm_dim, bias=True),
-        )
+        if mlp_type == "linear":
+            self.mlp_block = nn.Linear(llm_dim, llm_dim, bias=True)
+
+        elif mlp_type == "relu":
+            self.mlp_block = nn.Sequential(
+                nn.Linear(llm_dim, self.mlp_dim, bias=True),
+                nn.ReLU(),
+                nn.Linear(self.mlp_dim, llm_dim, bias=True),
+            )
+
+        elif mlp_type == "gelu":
+            self.mlp_block = nn.Sequential(
+                nn.Linear(llm_dim, self.mlp_dim, bias=True),
+                nn.GELU(),
+                nn.Linear(self.mlp_dim, llm_dim, bias=True),
+            )
+
+        else:
+            raise ValueError(f"LayerOutputPooler with `{mlp_type = }` is not supported!")
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.mlp_block(x)
 
 
 class LayerOutputPooler(nn.Module):
-    def __init__(self, llm_dim: int, num_heads: int, mlp_dim: Optional[int] = None) -> None:
+    def __init__(
+            self, 
+            llm_dim: int, 
+            num_heads: int, 
+            mlp_dim: Optional[int] = None, 
+            mlp_type: str = "linear",
+        ) -> None:
         super().__init__()
 
         # Learnable probe vector
@@ -39,7 +59,7 @@ class LayerOutputPooler(nn.Module):
         self.layer_norm = nn.LayerNorm(llm_dim)
 
         # MLP block
-        self.mlp_block = MLPBlock(llm_dim=llm_dim, mlp_dim=mlp_dim)
+        self.mlp_block = MLPBlock(llm_dim=llm_dim, mlp_dim=mlp_dim, mlp_type=mlp_type)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         assert x.dim() == 4

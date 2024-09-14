@@ -28,9 +28,9 @@ class PrismaticVLA(PrismaticVLM):
         enable_mixed_precision_training: bool = True,
         arch_specifier: str = "gelu-mlp",
         use_layer_output_pooler: bool = False,
+        layer_output_pooler_configs: Optional[Dict] = None,
         use_action_head: bool = True,
         action_head_configs: Optional[Dict] = None,
-        use_action_head_for_inference: bool = False,
         norm_stats: Optional[Dict[str, Dict[str, Dict[str, Dict[str, List[float]]]]]] = None,
     ) -> None:
         super().__init__(
@@ -40,9 +40,9 @@ class PrismaticVLA(PrismaticVLM):
             enable_mixed_precision_training=enable_mixed_precision_training,
             arch_specifier=arch_specifier,
             use_layer_output_pooler=use_layer_output_pooler,
+            layer_output_pooler_configs=layer_output_pooler_configs,
             use_action_head=use_action_head,
             action_head_configs=action_head_configs,
-            use_action_head_for_inference=use_action_head_for_inference,
         )
         
         self.norm_stats = norm_stats
