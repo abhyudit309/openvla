@@ -278,7 +278,9 @@ def load_prismatic_vla(
     # = Load Individual Components necessary for Instantiating a PrismaticVLA =
     #   =>> Print Minimal Config
     layer_output_pooler_configs = None
-    if cfg["use_layer_output_pooler"]:
+    use_layer_output_pooler = False
+    if "use_layer_output_pooler" in cfg:
+        use_layer_output_pooler = cfg["use_layer_output_pooler"]
         layer_output_pooler_configs = {
             "lop_mlp_type": cfg["lop_mlp_type"],
             "lop_num_map_heads": cfg["lop_num_map_heads"],
@@ -328,7 +330,7 @@ def load_prismatic_vla(
         llm_backbone,
         arch_specifier=model_cfg["arch_specifier"],
         freeze_weights=not load_for_training,
-        use_layer_output_pooler=cfg["use_layer_output_pooler"],
+        use_layer_output_pooler=use_layer_output_pooler,
         layer_output_pooler_configs=layer_output_pooler_configs,
         use_action_head=True,
         action_head_configs=action_head_configs,

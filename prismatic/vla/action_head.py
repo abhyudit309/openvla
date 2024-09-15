@@ -109,6 +109,7 @@ class DiffusionActionHead(nn.Module):
         self.diffusion_steps = diffusion_steps
         self.n_diffusion_samples = n_diffusion_samples
         self.use_map = use_map
+        self.seed = seed
 
         if use_map:
             assert num_map_heads is not None, "Should pass in number of attention heads if 'use_map' is True!"
@@ -131,6 +132,10 @@ class DiffusionActionHead(nn.Module):
 
         self.rng = torch.Generator(device='cuda').manual_seed(seed)
 
+    @property
+    def device(self) -> torch.device:
+        return next(self.parameters()).device
+    
     def forward(
             self, 
             llm_output: torch.Tensor,
@@ -154,7 +159,17 @@ class DiffusionActionHead(nn.Module):
         pred_eps = self.diffusion_model(pooled_output, noisy_actions, time)
         return pred_eps
 
+    def change_device(self, device: torch.device) -> None:
+        self.betas = self.betas.to(device)
+        self.alphas = self.alphas.to(device)
+        self.alpha_hats = self.alpha_hats.to(device)
+        
+        self.rng = torch.Generator(device=device).manual_seed(self.seed)
+    
     def predict_action(self, llm_output: torch.Tensor) -> np.ndarray:
+        if self.betas.device != self.device:
+            self.change_device(self.device)
+
         batch_size = llm_output.shape[0]
         assert batch_size == 1
 
@@ -167,17 +182,17 @@ class DiffusionActionHead(nn.Module):
             alpha_2 = (1.0 - self.alphas[time]) / (torch.sqrt(1.0 - self.alpha_hats[time]))
             current_x = alpha_1 * (current_x - alpha_2 * pred_eps)
 
-            z = torch.randn(size=current_x.shape, generator=self.rng, device='cuda', dtype=torch.bfloat16)
+            z = torch.randn(size=current_x.shape, generator=self.rng, device=self.device, dtype=torch.bfloat16)
             current_x = current_x + (time > 0) * (torch.sqrt(self.betas[time]) * z)
 
             current_x = torch.clamp(current_x, min=-1.0, max=1.0)
             return current_x
 
-        noise = torch.randn(size=(batch_size, self.action_dim), generator=self.rng, device='cuda', dtype=torch.bfloat16)
+        noise = torch.randn(size=(batch_size, self.action_dim), generator=self.rng, device=self.device, dtype=torch.bfloat16)
         actions = noise
 
         for t in reversed(range(self.diffusion_steps)):
-            actions = scan_fn(actions, torch.tensor(t, dtype=torch.long, device='cuda'))
+            actions = scan_fn(actions, torch.tensor(t, dtype=torch.long, device=self.device))
 
         return actions[0].to(dtype=torch.float32).cpu().numpy()
 
