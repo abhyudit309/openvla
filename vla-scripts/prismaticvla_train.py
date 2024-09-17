@@ -171,7 +171,7 @@ def train(cfg: TrainConfig) -> None:
     if cfg.use_layer_output_pooler:
         model_id += "+lop"
 
-    cfg.run_id = f"{data_id}+{model_id}+{cfg.action_head_specifier}+stage-{cfg.stage}+x{cfg.seed}" if cfg.run_id is None else cfg.run_id
+    cfg.run_id = f"{data_id}+{model_id}+{cfg.action_head_specifier}+stage-{cfg.stage}+x{cfg.seed}+e{cfg.epochs}" if cfg.run_id is None else cfg.run_id
     cfg.run_id += f"--{cfg.run_id_note}"
     if cfg.image_aug:
         cfg.run_id += "--image_aug"

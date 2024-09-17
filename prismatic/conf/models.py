@@ -454,7 +454,7 @@ class Prism_7B_DINOSigLIP(Exp_7B_One_Stage):
     image_resize_strategy: str = "resize-naive"
     llm_backbone_id: str = "llama2-7b-pure"
     arch_specifier: str = "no-align+fused-gelu-mlp"
-    finetune_epochs: int = 2
+    finetune_epochs: int = 10
 
 
 #   =>> Note :: Run with `--dataset.type "llava-lvis4v-lrv"`
