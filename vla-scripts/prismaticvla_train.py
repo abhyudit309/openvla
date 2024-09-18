@@ -109,7 +109,7 @@ class TrainConfig:
     l2_loss_weight: float = 0.5                                     # Weight for L2 loss
 
     # Additional params
-    use_layer_output_pooler: bool = True                            # If True, we process the outputs of all hidden layers by pooling them before sending to the action head.
+    use_layer_output_pooler: bool = False                           # If True, we process the outputs of all hidden layers by pooling them before sending to the action head.
     lop_mlp_type: str = "linear"                                    # MLP type in the Layer output pooler (can be 'linear', 'relu', or 'gelu')
     lop_num_map_heads: int = 4                                      # Number of attention heads in the Layer output pooler
 
@@ -170,8 +170,11 @@ def train(cfg: TrainConfig) -> None:
 
     if cfg.randomize_qnas:
         data_id += "+r_qnas"
+
     if cfg.use_layer_output_pooler:
         model_id += "+lop"
+    else:
+        model_id += f"+{cfg.hidden_layer_aggregation}"
 
     cfg.run_id = f"{data_id}+{model_id}+{cfg.action_head_specifier}+stage-{cfg.stage}+x{cfg.seed}+e{cfg.epochs}" if cfg.run_id is None else cfg.run_id
     cfg.run_id += f"--{cfg.run_id_note}"

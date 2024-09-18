@@ -281,7 +281,7 @@ def load_prismatic_vla(
     use_layer_output_pooler = False
     hidden_layer_aggregation = cfg["hidden_layer_aggregation"] if "hidden_layer_aggregation" in cfg else "last"
 
-    if "use_layer_output_pooler" in cfg:
+    if "use_layer_output_pooler" in cfg and cfg["use_layer_output_pooler"]:
         use_layer_output_pooler = cfg["use_layer_output_pooler"]
         layer_output_pooler_configs = {
             "lop_mlp_type": cfg["lop_mlp_type"],
