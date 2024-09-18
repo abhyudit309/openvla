@@ -47,6 +47,7 @@ class PrismaticVLM(VLM):
         arch_specifier: str = "gelu-mlp",
         use_layer_output_pooler: bool = False,
         layer_output_pooler_configs: Optional[Dict] = None,
+        hidden_layer_aggregation: Optional[str] = None,
         use_action_head: bool = False,
         action_head_configs: Optional[Dict] = None,
         seed: int = 7,
@@ -96,6 +97,10 @@ class PrismaticVLM(VLM):
             )
 
             self.all_module_keys.append("layer_output_pooler")
+        
+        else:
+            assert hidden_layer_aggregation in ["average", "last"], f"PrismaticVLM with `{hidden_layer_aggregation = }` is not supported!"
+            self.hidden_layer_aggregation = hidden_layer_aggregation
 
         self.use_action_head = use_action_head
         if use_action_head:
@@ -382,6 +387,8 @@ class PrismaticVLM(VLM):
             self.trainable_module_keys.append("layer_output_pooler")
             lop_mlp_type = self.layer_output_pooler_configs["lop_mlp_type"]
             overwatch.info(f"[TRAINABLE] 🔥 =>> Layer Output Pooler `{lop_mlp_type}`", ctx_level=1)
+        else:
+            overwatch.info(f"Hidden Layer Aggregation `{self.hidden_layer_aggregation}`", ctx_level=1)
         
         if self.use_action_head:
             # We always train the action head

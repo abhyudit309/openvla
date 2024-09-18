@@ -29,6 +29,7 @@ class PrismaticVLA(PrismaticVLM):
         arch_specifier: str = "gelu-mlp",
         use_layer_output_pooler: bool = False,
         layer_output_pooler_configs: Optional[Dict] = None,
+        hidden_layer_aggregation: Optional[str] = None,
         use_action_head: bool = True,
         action_head_configs: Optional[Dict] = None,
         norm_stats: Optional[Dict[str, Dict[str, Dict[str, Dict[str, List[float]]]]]] = None,
@@ -41,6 +42,7 @@ class PrismaticVLA(PrismaticVLM):
             arch_specifier=arch_specifier,
             use_layer_output_pooler=use_layer_output_pooler,
             layer_output_pooler_configs=layer_output_pooler_configs,
+            hidden_layer_aggregation=hidden_layer_aggregation,
             use_action_head=use_action_head,
             action_head_configs=action_head_configs,
         )
@@ -99,6 +101,8 @@ class PrismaticVLA(PrismaticVLM):
             if self.use_layer_output_pooler:
                 all_hidden_layer_outputs = torch.stack(output.hidden_states[0], dim=2)
                 pooled_hidden_states = self.layer_output_pooler(all_hidden_layer_outputs)
+            elif self.hidden_layer_aggregation == "average":
+                pooled_hidden_states = torch.mean(torch.stack(output.hidden_states[0], dim=2), dim=2)
             else:
                 # We just consider the last layer output
                 pooled_hidden_states = output.hidden_states[0][-1]

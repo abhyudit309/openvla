@@ -279,6 +279,8 @@ def load_prismatic_vla(
     #   =>> Print Minimal Config
     layer_output_pooler_configs = None
     use_layer_output_pooler = False
+    hidden_layer_aggregation = cfg["hidden_layer_aggregation"] if "hidden_layer_aggregation" in cfg else "last"
+
     if "use_layer_output_pooler" in cfg:
         use_layer_output_pooler = cfg["use_layer_output_pooler"]
         layer_output_pooler_configs = {
@@ -298,11 +300,12 @@ def load_prismatic_vla(
     else:
         overwatch.info(
             f"Found Config =>> Loading & Freezing [bold blue]{model_cfg['model_id']}[/] with:\n"
-            f"             Vision Backbone =>> [bold]{model_cfg['vision_backbone_id']}[/]\n"
-            f"             LLM Backbone    =>> [bold]{model_cfg['llm_backbone_id']}[/]\n"
-            f"             Action Head     =>> [bold]{action_head_configs['action_head_specifier']}[/]\n"
-            f"             Arch Specifier  =>> [bold]{model_cfg['arch_specifier']}[/]\n"
-            f"             Checkpoint Path =>> [underline]`{checkpoint_pt}`[/]"
+            f"             Vision Backbone           =>> [bold]{model_cfg['vision_backbone_id']}[/]\n"
+            f"             LLM Backbone              =>> [bold]{model_cfg['llm_backbone_id']}[/]\n"
+            f"             Hidden Layer Aggregation  =>> [bold]{hidden_layer_aggregation}[/]\n"
+            f"             Action Head               =>> [bold]{action_head_configs['action_head_specifier']}[/]\n"
+            f"             Arch Specifier            =>> [bold]{model_cfg['arch_specifier']}[/]\n"
+            f"             Checkpoint Path           =>> [underline]`{checkpoint_pt}`[/]"
         )
 
     # Load Vision Backbone
@@ -332,6 +335,7 @@ def load_prismatic_vla(
         freeze_weights=not load_for_training,
         use_layer_output_pooler=use_layer_output_pooler,
         layer_output_pooler_configs=layer_output_pooler_configs,
+        hidden_layer_aggregation=hidden_layer_aggregation,
         use_action_head=True,
         action_head_configs=action_head_configs,
     )

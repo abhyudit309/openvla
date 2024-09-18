@@ -467,6 +467,8 @@ class TrainingStrategy(ABC):
                     if self.vlm.use_layer_output_pooler:
                         all_hidden_layer_outputs = torch.stack(output.hidden_states, dim=2)
                         pooled_hidden_states = self.vlm.layer_output_pooler(all_hidden_layer_outputs)
+                    elif self.vlm.hidden_layer_aggregation == "average":
+                        pooled_hidden_states = torch.mean(torch.stack(output.hidden_states, dim=2), dim=2)
                     else:
                         # We just consider the last layer output
                         pooled_hidden_states = output.hidden_states[-1]
@@ -687,6 +689,8 @@ class TrainingStrategy(ABC):
                         if self.vlm.use_layer_output_pooler:
                             all_hidden_layer_outputs = torch.stack(output.hidden_states, dim=2)
                             pooled_hidden_states = self.vlm.layer_output_pooler(all_hidden_layer_outputs)
+                        elif self.vlm.hidden_layer_aggregation == "average":
+                            pooled_hidden_states = torch.mean(torch.stack(output.hidden_states, dim=2), dim=2)
                         else:
                             # We just consider the last layer output
                             pooled_hidden_states = output.hidden_states[-1]
