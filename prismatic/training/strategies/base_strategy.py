@@ -792,7 +792,7 @@ class TrainingStrategy(ABC):
                         self.optimizer.zero_grad()
 
                         # Push Metrics
-                        metrics.commit(global_step=metrics.global_step + 1, lr=self.lr_scheduler.get_last_lr()[0])
+                        metrics.commit(global_step=metrics.global_step + 1, epoch=epoch, lr=self.lr_scheduler.get_last_lr()[0])
                         status = metrics.push()
 
                         # Check for Save Interval or Max Steps & Save Checkpoint
