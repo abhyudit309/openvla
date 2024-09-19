@@ -456,6 +456,7 @@ class RLDSQnAJSONDataset(Dataset[Dict[str, torch.Tensor]]):
         # Iterate over examples
         for example in self.examples:
             conversations = example["conversations"]
+            # TODO: Need to change this to 8 if using questions with action histories
             if len(conversations) > 6: 
                 # more than 3 QnA pairs
                 if random.random() <= train_val_split_multi_qna:

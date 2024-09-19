@@ -180,6 +180,24 @@ class RLDS_OpenX_QnA_Mix_1_Config(DatasetConfig):
     dataset_root_dir: Path = Path("/home/ubuntu")
 
 
+# This dataset consists of an additional question with action histories.
+# Rest is the same as above.
+@dataclass
+class RLDS_OpenX_QnA_Mix_1_V2_Config(DatasetConfig):
+    dataset_id: str = "rlds-oxe-qna-franka-mix-1-v2"
+
+    # Same as finetune as of now. Might need to FIX later.
+    align_stage_components: Tuple[Path, Path] = (
+        Path("rlds_oxe_qna/franka_mix_1-v2.json"),
+        Path("rlds_oxe_qna/"),
+    )
+    finetune_stage_components: Tuple[Path, Path] = (
+        Path("rlds_oxe_qna/franka_mix_1-v2.json"),
+        Path("rlds_oxe_qna/"),
+    )
+    dataset_root_dir: Path = Path("/home/ubuntu")
+
+
 # === Define a Dataset Registry Enum for Reference & Validation =>> all *new* datasets must be added here! ===
 @unique
 class DatasetRegistry(Enum):
@@ -198,6 +216,7 @@ class DatasetRegistry(Enum):
     RLDS_OXE_QNA_V2 = RLDS_OpenX_QnA_V2_Config
     RLDS_OXE_QNA_V3 = RLDS_OpenX_QnA_V3_Config
     RLDS_OXE_QNA_MIX1 = RLDS_OpenX_QnA_Mix_1_Config
+    RLDS_OXE_QNA_MIX1_V2 = RLDS_OpenX_QnA_Mix_1_V2_Config
 
     @property
     def dataset_id(self) -> str:
